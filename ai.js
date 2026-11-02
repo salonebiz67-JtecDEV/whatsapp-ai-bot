@@ -20,7 +20,8 @@ async function callOpenAICompatible({ apiKey, baseUrl, model, messages, provider
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json', ...extraHeaders },
-    body: JSON.stringify({ model, messages, max_tokens: 400, temperature: 0.8 })
+    body: JSON.stringify({ model, messages, max_tokens: 500, temperature: 0.8 }),
+    signal: AbortSignal.timeout(15000)
   });
   if (!res.ok) throw new Error(`${providerName} ${res.status}: ${(await res.text()).slice(0,300)}`);
   const data = await res.json();
@@ -31,11 +32,8 @@ async function callOpenAICompatible({ apiKey, baseUrl, model, messages, provider
 }
 
 function buildMessages(userMessage, history, ownerStyleSamples, systemPrompt, imagePart = null) {
-  // NEW: Transparent assistant - no longer impersonating, no bank info in prompt
-  // Style samples are used ONLY for casual tone reference, but filtered for romantic/financial content
   let safeStyle = [];
   if (ownerStyleSamples && ownerStyleSamples.length > 0) {
-    // Filter out any style samples that contain financial or romantic language to prevent learning bad patterns
     safeStyle = ownerStyleSamples.filter(s => {
       const lower = s.toLowerCase();
       return !containsFinancialLanguage(lower, true) && !containsRomanticLanguage(lower, true);
@@ -58,6 +56,13 @@ function buildMessages(userMessage, history, ownerStyleSamples, systemPrompt, im
 }
 
 // ==================== HARD FILTERS & SAFETY CHECKS ====================
+
+// Whole-word matching so "ill" doesn't match "will", "pos" doesn't match "possible", "sue" doesn't match "issue"
+function kwMatch(lower, kw) {
+  const esc = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('(^|[^a-z0-9])' + esc + '($|[^a-z0-9])', 'i').test(lower);
+}
+
 
 // 1. FINANCIAL LANGUAGE - HARD BLOCK
 const FINANCIAL_KEYWORDS = [
@@ -85,12 +90,9 @@ export function containsFinancialLanguage(text, isStyleCheck = false) {
   if (!text) return false;
   const lower = text.toLowerCase();
   
-  // Check keywords
   for (const kw of FINANCIAL_KEYWORDS) {
-    if (lower.includes(kw)) {
-      // For style check, be less aggressive - only block obvious ones
+    if (kwMatch(lower, kw)) {
       if (isStyleCheck) {
-        // Only block if contains account number patterns or explicit money requests
         if (['account number', 'acct number', 'send money', 'transfer money', 'send account', 'drop account', 'send aza', 'drop aza', 'opay', 'bank account'].some(k => lower.includes(k))) {
           return true;
         }
@@ -101,7 +103,6 @@ export function containsFinancialLanguage(text, isStyleCheck = false) {
     }
   }
   
-  // Check regexes (always for AI output, not for style check unless obvious)
   if (!isStyleCheck) {
     for (const regex of FINANCIAL_REGEXES) {
       if (regex.test(text)) {
@@ -127,7 +128,6 @@ const ROMANTIC_KEYWORDS = [
   'babe i', 'baby i', 'sweetie', 'cutie', 'boo boo'
 ];
 
-// Romantic phrases that are intimate - check with word boundaries
 const ROMANTIC_REGEXES = [
   /\b(babe|baby|boo|honey|sweetheart|darling)\b.*\b(love|miss|kiss|hug|cuddle)\b/i,
   /\b(i|you).{0,5}\b(my|ur)\b.{0,5}\b(love|heart|everything|world)\b/i,
@@ -138,7 +138,6 @@ export function containsRomanticLanguage(text, isStyleCheck = false) {
   if (!text) return false;
   const lower = text.toLowerCase();
   
-  // Check emojis
   for (const emoji of ROMANTIC_EMOJIS) {
     if (text.includes(emoji)) {
       console.log(`🚫 Romantic emoji blocked: ${emoji} in "${text.slice(0,80)}"`);
@@ -146,18 +145,16 @@ export function containsRomanticLanguage(text, isStyleCheck = false) {
     }
   }
   
-  // Check keywords - for style check, be more permissive, only block explicit
   for (const kw of ROMANTIC_KEYWORDS) {
-    if (lower.includes(kw)) {
+    if (kwMatch(lower, kw)) {
       if (isStyleCheck && !['i love you', 'my love', 'sexy', 'make love'].includes(kw)) {
-        continue; // Allow some mild terms in style learning, but filter in output
+        continue;
       }
       console.log(`🚫 Romantic keyword blocked: "${kw}" in "${text.slice(0,80)}"`);
       return true;
     }
   }
   
-  // Regex check for AI output
   if (!isStyleCheck) {
     for (const regex of ROMANTIC_REGEXES) {
       if (regex.test(text)) {
@@ -173,11 +170,9 @@ export function containsRomanticLanguage(text, isStyleCheck = false) {
 export function sanitizeRomanticLanguage(text) {
   if (!text) return text;
   let sanitized = text;
-  // Remove romantic emojis
   for (const emoji of ROMANTIC_EMOJIS) {
     sanitized = sanitized.split(emoji).join('');
   }
-  // Replace romantic phrases with neutral
   sanitized = sanitized.replace(/\b(my love|my baby|my babe|babe|baby|boo|honey|sweetheart)\b/gi, 'there');
   sanitized = sanitized.replace(/😍|🥰|💞|😘|💋|💖|💗|💓|💘|💝/g, '🙂');
   return sanitized.trim();
@@ -187,10 +182,8 @@ export function sanitizeRomanticLanguage(text) {
 const IDENTITY_QUESTIONS = [
   'are you a bot', 'are you bot', 'are you an ai', 'are you ai', 'are you automated',
   'is this a bot', 'is this bot', 'is this an ai', 'is this ai', 'is this automated',
-  'are you real', 'are you really you', 'is this really you', 'is this really bethel',
-  'are you bethel', 'who is this', 'who are you really', 'are you human',
-  'are you actually bethel', 'is this bethel speaking', 'am i talking to bethel',
-  'is this bethel?', 'are you bethel?', 'real bethel', 'actual bethel',
+  'are you real', 'are you really you', 'is this really you',
+  'who is this', 'who are you really', 'are you human', 'are you a human', 'are you a person',
   'bot?', 'automated?', 'ai assistant', 'you a robot'
 ];
 
@@ -198,7 +191,6 @@ export function isIdentityQuestion(text) {
   if (!text) return false;
   const lower = text.toLowerCase().trim();
   
-  // Direct match
   for (const q of IDENTITY_QUESTIONS) {
     if (lower.includes(q)) {
       console.log(`🔍 Identity question detected: "${q}" in "${text.slice(0,80)}"`);
@@ -206,90 +198,55 @@ export function isIdentityQuestion(text) {
     }
   }
   
-  // Pattern match: "is this really you" variations
-  if (/\b(is|are|am).{0,10}\b(really|actually|truly).{0,10}\b(you|bethel|him)\b/i.test(lower)) return true;
+  const o = (config.ownerName || '').toLowerCase();
+  if (o && (lower.includes(`are you ${o}`) || lower.includes(`is this ${o}`) || lower.includes(`real ${o}`) || lower.includes(`talking to ${o}`) || lower.includes(`is this really ${o}`))) return true;
+  if (/\b(is|are|am).{0,10}\b(really|actually|truly).{0,10}\b(you|him|her)\b/i.test(lower)) return true;
   if (/\b(bot|ai|automated|robot)\b/i.test(lower) && /\b(you|this|are|is)\b/i.test(lower)) return true;
   
   return false;
 }
 
 export function getDisclosureResponse() {
-  return `Yes, I'm Bethel's WhatsApp assistant handling casual messages on his behalf. For anything important, personal, or serious, I'll make sure Bethel replies directly himself. How can I help with something light in the meantime? 🙂`;
+  return `Yes, I'm ${config.assistantName}, ${config.ownerName}'s AI assistant 🙂 I handle messages for ${config.ownerName} and I'll pass anything important on to them directly. How can I help?`;
 }
 
-// 4. SERIOUS / PERSONAL / EMOTIONAL / IMPORTANT TOPICS - AUTO HANDOFF
+// 4. SERIOUS TOPICS - AUTO HANDOFF (kept narrow on purpose: only real emergencies/crises, so normal chats still get replies)
 const SERIOUS_KEYWORDS = [
-  // Emotional distress
-  'depressed', 'depression', 'anxiety', 'anxious', 'suicidal', 'suicide', 'kill myself', 'want to die', 'self harm', 'self-harm', 'cutting myself',
-  'crying', 'i\'m crying', 'can\'t stop crying', 'heartbroken', 'broken heart',
-  'lonely', 'so lonely', 'alone', 'need someone', 'need you', 'i need you',
-  'hospital', 'emergency', 'accident', 'sick', 'ill', 'died', 'death', 'funeral', 'passed away', 'lost someone',
-  'pregnant', 'pregnancy', 'miscarriage',
-  // Relationship serious
-  'breakup', 'break up', 'divorce', 'cheated', 'cheating', 'affair', 'fight', 'quarrel serious',
-  'i love you', 'i really love you', 'do you love me', // Romantic serious
-  // Life important
-  'lost my job', 'fired', 'got fired', 'jobless', 'evicted', 'homeless',
-  'legal', 'court', 'police', 'arrested', 'lawyer', 'sue', 'lawsuit',
-  'contract', 'business deal', 'investment', 'big money', 'important decision',
-  // Personal deep
-  'my father', 'my mother', 'my family', 'family problem', 'family issue',
-  'need advice', 'serious talk', 'can we talk seriously', 'need to talk',
-  'confidential', 'private matter', 'personal matter', 'important matter'
+  'suicidal', 'suicide', 'kill myself', 'want to die', 'self harm', 'self-harm', 'cutting myself',
+  'emergency', 'hospital', 'accident', 'passed away', 'funeral', 'miscarriage',
+  'arrested', 'lawsuit', 'kidnapped', 'rape', 'raped', 'abuse', 'abused'
 ];
 
 const SERIOUS_REGEXES = [
-  /\b(i need|need).{0,15}\b(you|help|advice|talk)\b.*\b(serious|urgent|important|personal)\b/i,
-  /\b(suicide|kill myself|want to die|self harm)\b/i,
-  /\b(hospital|emergency|accident|died|death|funeral)\b/i,
-  /\b(depressed|depression|anxiety|breakup|divorce)\b/i,
+  /\b(i need|need).{0,15}\b(you|help|advice|talk)\b.*\b(serious|urgent|important)\b/i,
 ];
 
 export function isSeriousTopic(text, history = []) {
   if (!text) return false;
   const lower = text.toLowerCase();
-  
-  // Check keywords
   for (const kw of SERIOUS_KEYWORDS) {
-    if (lower.includes(kw)) {
+    if (kwMatch(lower, kw)) {
       console.log(`⚠️ Serious keyword detected: "${kw}" in "${text.slice(0,80)}" - triggering handoff`);
       return true;
     }
   }
-  
-  // Check regexes
   for (const regex of SERIOUS_REGEXES) {
     if (regex.test(text)) {
-      console.log(`⚠️ Serious regex detected: ${regex} in "${text.slice(0,80)}" - triggering handoff`);
+      console.log(`⚠️ Serious regex detected: ${regex} - triggering handoff`);
       return true;
     }
   }
-  
-  // Check history for escalation - if last 2 user messages were emotional, handoff
-  if (history && history.length >= 2) {
-    const recentUserMsgs = history.filter(h => h.role === 'user').slice(-2).map(h => h.content.toLowerCase()).join(' ');
-    let emotionalCount = 0;
-    for (const kw of ['depressed', 'sad', 'crying', 'lonely', 'need you', 'help me', 'serious', 'important']) {
-      if (recentUserMsgs.includes(kw)) emotionalCount++;
-    }
-    if (emotionalCount >= 2) {
-      console.log(`⚠️ Emotional escalation in history - triggering handoff`);
-      return true;
-    }
-  }
-  
   return false;
 }
 
 export function getHandoffResponse(contactName = 'there') {
-  return `Thanks for sharing that — this sounds important and personal. I'm Bethel's assistant handling light messages, so let me have Bethel get back to you directly on this. He'll reply himself shortly. 🙏`;
+  return `Thanks for telling me. This sounds important, so I'll pass this to ${config.ownerName} right now and they'll reply you personally. 🙏`;
 }
 
 export function getSafeFallbackResponse() {
   const fallbacks = [
-    `Got it — let me have Bethel reply directly on that one. He'll get back to you shortly. 🙏`,
-    `Thanks for letting me know. This sounds like something Bethel should handle himself — I'll make sure he sees it and replies directly.`,
-    `Appreciate you sharing. Let me flag this for Bethel to respond to personally — he'll be in touch soon.`,
+    `Got it, I'll pass this to ${config.ownerName} so they reply you directly. 🙏`,
+    `Thanks for letting me know. I'll make sure ${config.ownerName} sees this and gets back to you.`,
   ];
   return fallbacks[Math.floor(Math.random() * fallbacks.length)];
 }
@@ -356,7 +313,7 @@ export async function generateReply(jid, userMessage, history = [], ownerStyleSa
   
   // ===== MANDATORY CHECKS BEFORE AI =====
   const skipPreChecks = options.skipPreChecks || options.isAgentTask || false;
-  const isInternalAgentPrompt = userMessage && (userMessage.includes('Goal for this contact:') || userMessage.includes('STRICT RULES:') || userMessage.includes('You are Bethel\'s transparent WhatsApp assistant handling ONLY casual'));
+  const isInternalAgentPrompt = userMessage && (userMessage.includes('Goal for this contact:') || userMessage.includes('STRICT RULES:') || userMessage.includes('AGENT OUTREACH:'));
   
   // 1. Identity question -> must disclose truthfully (skip for internal prompts)
   if (!isInternalAgentPrompt && !skipPreChecks && isIdentityQuestion(userMessage)) {
@@ -364,16 +321,14 @@ export async function generateReply(jid, userMessage, history = [], ownerStyleSa
     return getDisclosureResponse();
   }
   
-  // 2. Serious/personal/emotional/important -> auto handoff, don't reply as bot (skip for internal agent prompts)
+  // 2. Serious topics -> auto handoff
   if (!isInternalAgentPrompt && !skipPreChecks && isSeriousTopic(userMessage, history)) {
     console.log(`⚠️ SERIOUS TOPIC from ${jid}: "${userMessage.slice(0,80)}" - HANDOFF REQUIRED`);
     return `__HANDOFF__${getHandoffResponse()}`;
   }
   
-  // 3. Financial request from user -> handoff (don't handle money) - strict for real user messages, not internal prompts
+  // 3. Financial request from user -> handoff
   if (!isInternalAgentPrompt && !skipPreChecks) {
-    // Only check if user is actually REQUESTING financial action, not just mentioning keywords in instructions
-    // Use more specific check for user financial requests
     const lower = (userMessage || '').toLowerCase();
     const isFinancialRequest = /\b(send|transfer|drop).{0,15}(money|account|aza|cash|fund)/i.test(lower) || 
                                /\b(account number|bank account|opay|my account|your account).{0,10}(please|send|drop|what|give)/i.test(lower) ||
@@ -390,77 +345,43 @@ export async function generateReply(jid, userMessage, history = [], ownerStyleSa
   const timeContext = getNigerianTimeContext();
   console.log(`⏰ Nigerian time: ${timeContext.formatted}`);
   
-  // Disclosure frequency logic
   const shouldDisclose = options.shouldDisclose || false;
-  const isForcedDisclosure = options.isForcedDisclosure || false; // Identity question
+  const isForcedDisclosure = options.isForcedDisclosure || false;
   console.log(`📢 Disclosure check for ${jid}: shouldDisclose=${shouldDisclose}, forced=${isForcedDisclosure}, newContact=${!ownerStyleSamples || ownerStyleSamples.length === 0}`);
 
-  // ===== NEW TRANSPARENT ASSISTANT PROMPTS WITH SMART DISCLOSURE =====
-  const disclosureInstruction = shouldDisclose 
-    ? `DISCLOSURE REQUIRED THIS MESSAGE: This is first time replying to this contact, or first after handoff/long gap (2+ weeks), or they asked identity. You MUST include brief disclosure that you are Bethel's assistant handling light messages. Example: "Hi, I'm helping Bethel with messages while he's busy —" or "Quick note: I'm Bethel's assistant handling light messages". Keep it natural, not robotic, one sentence at start, then continue with casual chat.`
-    : `DISCLOSURE NOT NEEDED THIS MESSAGE: You already disclosed recently to this contact (within 2 weeks). Do NOT re-announce "I'm assistant" again - just chat naturally and friendly in casual style. Don't be repetitive.`;
+  // ===== YOUR ASSISTANT'S IDENTITY + RULES (env vars: OWNER_NAME, ASSISTANT_NAME, PERSONA, GOALS, LANGUAGE_STYLE, CUSTOM_RULES) =====
+  const OWNER = config.ownerName;
+  const BOT = config.assistantName;
+  const disclosureInstruction = shouldDisclose
+    ? `Include ONE short natural sentence saying you are ${BOT}, ${OWNER}'s AI assistant, then carry on helping.`
+    : `You already introduced yourself to this contact. Do NOT re-introduce yourself, just continue naturally.`;
 
-  const BASE_RULES = `
-You are Bethel's WhatsApp assistant, NOT Bethel himself. You handle ONLY casual, low-stakes small talk on his behalf.
+  const safeStyle = (ownerStyleSamples || []).filter(s => !containsFinancialLanguage(s, true) && !containsRomanticLanguage(s, true)).slice(-6);
 
-STRICT RULES - NEVER BREAK:
-1. TRANSPARENCY: You are an assistant. If asked if you are bot/AI/automated/really Bethel, you MUST disclose truthfully: "Yes, I'm Bethel's assistant handling light messages — Bethel will reply directly for anything important" - this is mandatory, no exceptions.
-2. NO FINANCIAL LANGUAGE EVER: Never mention money, accounts, bank, Opay, transfer, send money, drop, payment, naira, ₦, wallet, funds, cash. If user asks about money/accounts, you must handoff: say you will have Bethel reply directly. Never share or ask for account numbers.
-3. NO ROMANTIC/FLIRTY TONE: Never use romantic emojis 🥰😍💞😘💋💖💗💓💘 or intimate phrases like "my love", "babe", "baby", "sweetheart", "honey", "I love you", "my heart". Keep tone friendly, neutral, platonic. Use only simple emojis like 🙂🙏😊
-4. CASUAL SMALL TALK ONLY: You handle greetings, light banter, "how are you", weather, general check-ins, scheduling logistics like "when are you free". Nothing personal, emotional, serious, or important.
-5. AUTO-HANDOFF: If conversation becomes personal, emotional, serious, important, or user shares something deep (sadness, health, family issues, relationship problems, job loss, emergency), you MUST stop and say you will have Bethel reply directly.
-6. NEVER PRETEND TO BE BETHEL FOR MEANINGFUL CONVERSATIONS: For low-stakes casual chat, you can be friendly as his assistant, but never claim to be Bethel discussing something important. Make it clear you are assistant for light stuff when disclosure required, otherwise just be naturally friendly.
-7. Keep replies short, 1-2 lines, friendly, Nigerian casual but professional, no flirty tone.
-8. ${disclosureInstruction}
+  dynamicSystemPrompt = `
+You are ${BOT}, an AI assistant that answers WhatsApp messages on behalf of ${OWNER}. You are an AI, not ${OWNER}.
 
-Current Nigerian time: ${timeContext.full} - Use "${timeContext.greeting}" appropriately.
+PERSONALITY:
+${config.persona}
+
+LANGUAGE STYLE:
+${config.languageStyle}
+
+YOUR GOALS:
+${config.goals}
+${config.customRules ? `\nEXTRA RULES:\n${config.customRules}\n` : ''}
+CORE RULES (never break):
+1. Reply to every message. Never ignore anyone. Keep replies short (1-3 short lines) unless they ask for detail.
+2. Honesty: if anyone sincerely asks whether you are a bot, AI, human, or ${OWNER}, say plainly that you are ${BOT}, ${OWNER}'s AI assistant. Never claim to be human or to be ${OWNER}.
+3. Never make promises, payments or commitments for ${OWNER}. Never share or ask for bank/account details or money. If money, legal or an urgent personal matter comes up, say you'll pass it to ${OWNER}.
+4. No romantic or flirty tone.
+5. If you don't know something, say so and offer to pass a message to ${OWNER}. Never invent facts about ${OWNER}.
+6. ${disclosureInstruction}
+
+${safeStyle.length ? `How ${OWNER} usually chats (tone reference only, don't copy romantic/financial lines):\n- ${safeStyle.join('\n- ')}\n` : ''}${isNewContact ? 'This is a new contact.' : 'You have chatted with this contact before.'}
+Time: ${timeContext.formatted} - use "${timeContext.greeting}" if you greet.
 `;
-
-  if (isNewContact) {
-    dynamicSystemPrompt = `
-${BASE_RULES}
-
-You are handling a NEW contact - first time chatting.
-
-Your job:
-- Be friendly, warm, helpful for casual small talk
-- Greeting: Use "${timeContext.greeting}" based on time above
-${shouldDisclose ? '- Include brief disclosure: you are assistant helping Bethel with light messages (required for new contacts)' : '- Already disclosed recently, no need to re-announce assistant, just be naturally friendly'}
-- Keep it light, professional, low-stakes
-- If they ask something important/personal -> handoff immediately
-- Never mention money/accounts
-- Never flirty/romantic
-
-Example if disclosure needed: "${timeContext.greeting}! I'm helping Bethel with messages — he's a bit busy but I can help with light stuff. How are you doing today? 🙂"
-Example if no disclosure needed: "${timeContext.greeting}! How are you doing today? Hope you dey fine 🙂"
-
-Time: ${timeContext.formatted}
-`;
-    console.log(`🆕 NEW CONTACT ${jid} - transparent assistant mode - ${timeContext.greeting} - disclose=${shouldDisclose}`);
-  } else {
-    dynamicSystemPrompt = `
-${BASE_RULES}
-
-You are handling someone Bethel knows, but you are STILL his assistant, not Bethel himself.
-
-Casual tone reference (how owner does small talk, but filtered - no romantic/financial):
-${ownerStyleSamples ? ownerStyleSamples.filter(s => !containsFinancialLanguage(s, true) && !containsRomanticLanguage(s, true)).slice(-6).join('\n- ') : 'Friendly casual Nigerian small talk'}
-
-Rules for known contacts:
-- You can be more casual and familiar, but STILL as assistant, not pretending to be Bethel for serious matters
-- Use light banter, greetings, check-ins that match general friendly tone
-- But: No financial language, no romantic/flirty tone even if past messages had it - filter it out
-- If topic gets personal/emotional/serious -> handoff to Bethel directly
-${shouldDisclose ? '- Disclosure required this message: include brief note you are assistant (first after handoff/long gap)' : '- No disclosure needed this message: already disclosed within 2 weeks, just chat naturally without re-announcing assistant'}
-- Keep it low-stakes: greetings, "how far", "how you dey", light jokes, scheduling
-- Short, 1-2 lines, no essay
-
-Time: ${timeContext.formatted} - Use "${timeContext.greeting}" appropriately.
-
-You are assistant handling casual small talk, not Bethel having meaningful conversation. Disclosure needed: ${shouldDisclose}
-`;
-    console.log(`👤 KNOWN CONTACT ${jid} - transparent assistant mode, ${ownerStyleSamples?.length || 0} samples filtered - ${timeContext.greeting} - disclose=${shouldDisclose}`);
-  }
+  console.log(`🧠 ${isNewContact ? 'NEW' : 'KNOWN'} contact ${jid} - ${BOT} for ${OWNER} - disclose=${shouldDisclose}`);
 
   if (mediaInfo) {
     if (mediaInfo.type === 'image') {
@@ -504,214 +425,5 @@ You are assistant handling casual small talk, not Bethel having meaningful conve
     if (!config.geminiApiKey) break;
     try {
       const m = initGemini(modelName, dynamicSystemPrompt);
-      let geminiHistory = history.slice(-config.maxHistory).filter(msg => msg.role !== 'system' && msg.content && msg.content.trim().length > 0).map(msg => ({ role: msg.role === 'user' ? 'user' : 'model', parts: [{ text: msg.content.slice(0, 1000) }] }));
-      while (geminiHistory.length > 0 && geminiHistory[0].role !== 'user') geminiHistory.shift();
-      const cleaned = [];
-      for (let i = 0; i < geminiHistory.length; i++) {
-        const curr = geminiHistory[i];
-        if (cleaned.length > 0 && cleaned[cleaned.length-1].role === curr.role) cleaned[cleaned.length-1].parts[0].text += '\n' + curr.parts[0].text;
-        else cleaned.push(curr);
-      }
-      geminiHistory = cleaned;
-      if (imagePartForGemini && mediaInfo?.type === 'image') {
-        console.log(`🧠 Asking ${modelName} with IMAGE for ${jid} (${isNewContact ? 'NEW' : 'KNOWN'})`);
-        const result = await m.generateContent({ contents: [...geminiHistory.map(h => ({ role: h.role, parts: h.parts })), { role: 'user', parts: [{ text: userMessage }, imagePartForGemini] }], generationConfig: { maxOutputTokens: 400, temperature: 0.6, topP: 0.9 } });
-        const text = result.response.text();
-        if (!text) throw new Error('Empty');
-        generatedReply = text.trim();
-        break;
-      } else {
-        const chat = m.startChat({ history: geminiHistory, generationConfig: { maxOutputTokens: 400, temperature: 0.6, topP: 0.9 } });
-        console.log(`🧠 Asking ${modelName} for ${jid} (${isNewContact ? 'NEW' : 'KNOWN'}, history: ${geminiHistory.length})`);
-        const result = await chat.sendMessage(userMessage);
-        const text = result.response.text();
-        if (!text) throw new Error('Empty');
-        generatedReply = text.trim();
-        break;
-      }
-    } catch (e) {
-      lastError = e;
-      const msg = e.message || '';
-      console.error(`❌ ${modelName}:`, msg.slice(0,300));
-      if (msg.includes('API_KEY') || msg.toLowerCase().includes('api key is invalid')) break;
-      continue;
-    }
-  }
-
-  // Fallback chain if Gemini failed
-  if (!generatedReply) {
-    const fallbacks = [
-      { key: config.groqApiKey, base: 'https://api.groq.com/openai/v1', model: config.groqModel, name: 'Groq' },
-      { key: config.cerebrasApiKey, base: 'https://api.cerebras.ai/v1', model: config.cerebrasModel, name: 'Cerebras' },
-      { key: config.githubToken, base: 'https://models.github.ai/inference', model: config.githubModel, name: 'GitHub-Models' },
-      { key: config.openrouterApiKey, base: 'https://openrouter.ai/api/v1', model: config.openrouterModel, name: 'OpenRouter' },
-    ];
-    
-    for (const fb of fallbacks) {
-      if (!fb.key || generatedReply) continue;
-      try {
-        const r = await callOpenAICompatible({ 
-          apiKey: fb.key, 
-          baseUrl: fb.base, 
-          model: fb.model, 
-          messages: buildMessages(userMessage, history, ownerStyleSamples, dynamicSystemPrompt, imagePartForOpenAI), 
-          providerName: fb.name,
-          extraHeaders: fb.name === 'OpenRouter' ? { 'HTTP-Referer': 'https://github.com/bethelisrael2003-bot/whatsapp-ai-bot', 'X-Title': 'WhatsApp Bot' } : {}
-        });
-        generatedReply = r;
-        break;
-      } catch (e) {
-        console.error(`❌ ${fb.name}:`, e.message.slice(0,250));
-        lastError = e;
-      }
-    }
-  }
-
-  if (!generatedReply) {
-    console.error('💥 All AI failed:', lastError?.message?.slice(0,300));
-    return "Hello! I'm helping Bethel with messages — he's a bit busy now. I'll make sure he gets back to you shortly for anything important. 🙂";
-  }
-
-  // ===== POST-GENERATION HARD FILTERS =====
-  
-  // 1. Check if generated reply contains financial language -> BLOCK
-  if (containsFinancialLanguage(generatedReply)) {
-    console.log(`🚫 BLOCKED AI reply with financial language from ${jid}: "${generatedReply.slice(0,100)}" -> Handoff`);
-    return `__HANDOFF__${getHandoffResponse()} __REASON__: AI generated financial language blocked`;
-  }
-  
-  // 2. Check if generated reply contains romantic/flirty language -> SANITIZE or BLOCK
-  if (containsRomanticLanguage(generatedReply)) {
-    console.log(`🚫 Romantic language detected in AI reply from ${jid}: "${generatedReply.slice(0,100)}" -> Sanitizing`);
-    const sanitized = sanitizeRomanticLanguage(generatedReply);
-    // If still contains romantic after sanitization, or is heavily romantic, block
-    if (containsRomanticLanguage(sanitized)) {
-      console.log(`🚫 Still romantic after sanitize, blocking -> safe fallback`);
-      return `Hello! How are you doing today? 🙂 I'm helping Bethel with light messages — he'll reply directly for anything important.`;
-    }
-    generatedReply = sanitized;
-  }
-  
-  // 3. Check if reply itself is trying to claim to be Bethel for serious matter -> ensure transparency
-  const lowerReply = generatedReply.toLowerCase();
-  if ((lowerReply.includes('i am bethel') || lowerReply.includes("i'm bethel") || lowerReply.includes('na me be bethel')) && 
-      (lowerReply.includes('love') || lowerReply.includes('miss you') || isSeriousTopic(lowerReply))) {
-    console.log(`⚠️ AI trying to impersonate Bethel for emotional content -> Handoff`);
-    return `__HANDOFF__${getHandoffResponse()}`;
-  }
-  
-  // 4. Final safety: ensure reply is casual small talk, not too personal
-  if (generatedReply.length > 400) {
-    // Truncate long replies to keep casual
-    generatedReply = generatedReply.slice(0, 350) + '...';
-  }
-
-  console.log(`✅ Final filtered reply for ${jid}: "${generatedReply.slice(0,100)}..."`);
-  return generatedReply;
-}
-
-export function isHandoffRequest(text) {
-  if (!text) return false;
-  const lower = text.toLowerCase();
-  const triggers = ['human', 'real person', 'talk to person', 'stop bot', 'pause bot', '#human', '#stop', '#pause', 'agent', 'representative', 'talk to human', 'human please', 'i want human', 'need human', 'person please', 'talk to bethel', 'need bethel', 'want bethel'];
-  return triggers.some(t => lower.includes(t));
-}
-
-export function parseOwnerCommand(text) {
-  if (!text) return null;
-  const lower = text.toLowerCase().trim();
-  if (lower.startsWith('/pause ') || lower.startsWith('/stop ')) {
-    const target = text.split(' ')[1]?.replace(/[^0-9]/g, '');
-    return { action: 'pause', target };
-  }
-  if (lower.startsWith('/resume ')) {
-    const target = lower.split(' ')[1];
-    if (target === 'all') return { action: 'resumeAll' };
-    return { action: 'resume', target: target.replace(/[^0-9]/g, '') };
-  }
-  if (lower.startsWith('/clear ')) {
-    const target = lower.split(' ')[1];
-    if (target === 'all') return { action: 'clearAll' };
-    if (target === 'sessions' || target === 'session') return { action: 'clearSessions' };
-    return { action: 'clear', target: target.replace(/[^0-9]/g, '') };
-  }
-  if (lower === '/clear-sessions' || lower === '/clearsessions' || lower === '/fix-bad-mac') {
-    return { action: 'clearSessions' };
-  }
-  if (lower.startsWith('/style ')) {
-    const target = text.split(' ')[1]?.replace(/[^0-9]/g, '');
-    return { action: 'style', target };
-  }
-  if (lower.startsWith('/send ') || lower.startsWith('/sent ')) {
-    const rest = text.slice(text.toLowerCase().indexOf(' ', 1)).trim();
-    if (!rest) return { action: 'send', target: '', message: '' };
-    const tokens = rest.split(/\s+/);
-    let splitIdx = -1;
-    for (let i = 0; i < tokens.length; i++) {
-      if (/[a-zA-Z]{2,}/.test(tokens[i]) && !/^[0-9]+$/.test(tokens[i])) {
-        splitIdx = i;
-        break;
-      }
-    }
-    let target, message;
-    if (splitIdx > 0) {
-      target = tokens.slice(0, splitIdx).join(' ');
-      message = tokens.slice(splitIdx).join(' ');
-    } else {
-      target = tokens[0] || '';
-      message = tokens.slice(1).join(' ');
-    }
-    if (message.includes('|') || target.includes('|') || rest.includes('|')) {
-      return null;
-    }
-    return { action: 'send', target, message };
-  }
-  if (lower === '/status' || lower === '/stats') return { action: 'status' };
-  if (lower === '/help') return { action: 'help' };
-  if (lower === '/resume all') return { action: 'resumeAll' };
-  return null;
-}
-
-export function getOwnerHelpText() {
-  return `🤖 *Bethel's WhatsApp Assistant - Transparent Mode (v2)*
-
-This assistant now handles ONLY casual small talk on your behalf, with smart disclosure + quiet-when-you're-active.
-
-✅ *What it does:*
-• Greets people, light banter, "how are you"
-• Scheduling logistics: "when are you free"
-• Tells people you're busy and you'll reply directly for important stuff
-• Discloses it's assistant first time to new contact, after handoff, or after 2+ weeks gap - then chats naturally without repeating
-• Always re-discloses if asked "are you bot / really you"
-
-🚫 *Hard blocks (never sends):*
-• Any financial language: money, accounts, bank, Opay, transfer, etc.
-• Romantic/flirty tone or emojis 🥰😍💞😘💋
-• Personal/emotional/serious topics -> auto handoff to you
-
-⚠️ *Auto-handoff triggers:*
-• Emotional distress, health, family, relationship serious talk
-• Financial requests -> flags you
-• Important decisions, legal, etc.
-
-🔧 *Quiet-when-you're-active:*
-• Bot stays quiet if YOU replied in that chat within last 10m (OWNER_TAKEOVER_PAUSE_MINUTES)
-• Uses inactivity window - only replies if you haven't sent message in that chat recently
-• No double-replying or competing when you're handling conversation
-• Tracks global activity too - if you're active anywhere on WhatsApp, bot stays extra quiet
-
-🎛️ *Manual Controls (self-chat):*
-away / back - Toggle global away mode
-• "away" = Bot ACTIVE, handles casual while you're away
-• "back" = Bot QUIET, won't compete while you're online
-/pause 234... - Pause for contact
-/resume 234... - Resume
-/resume all - Resume all
-/clear 234... - Clear history
-/clear sessions - Fix Bad MAC
-/status - Status + disclosure stats
-/help - This help
-
-Disclosure: First time to new contact, after handoff, after 2 weeks gap, or when asked identity. Otherwise natural chat.
-`;
-}
+      const _send = (p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('Gemini timeout 20s')), 20000))]);
+      let geminiHistory = history.slice(-config.maxHistory).filter(msg => msg.role !== 'system' && msg.content && msg.content.trim().length > 0).map(msg => ({ role: msg.role === 'user' ? 'user' : 'model', parts: [{ text: msg.con
