@@ -412,6 +412,56 @@ class MemoryStore {
       return null;
     }
   }
+
+  // ---------- DAILY ACTIVITY LOG (used by the nightly summary) ----------
+  async addActivity(dateKey, entry) {
+    const key = `activity:${dateKey}`;
+    try {
+      const str = JSON.stringify(entry);
+      if (this.isRedis) {
+        await this.redis.rpush(key, str);
+        await this.redis.expire(key, 60 * 60 * 24 * 4);
+      } else {
+        const file = path.join(this.localDir, `activity_${dateKey}.json`);
+        const arr = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : [];
+        arr.push(entry);
+        fs.writeFileSync(file, JSON.stringify(arr.slice(-1000)));
+      }
+    } catch (e) {
+      console.warn('addActivity error:', e.message);
+    }
+  }
+
+  async getActivity(dateKey) {
+    const key = `activity:${dateKey}`;
+    try {
+      if (this.isRedis) {
+        const items = await this.redis.lrange(key, 0, 999);
+        return (items || []).map(i => (typeof i === 'string' ? JSON.parse(i) : i)).filter(Boolean);
+      }
+      const file = path.join(this.localDir, `activity_${dateKey}.json`);
+      return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : [];
+    } catch (e) {
+      console.warn('getActivity error:', e.message);
+      return [];
+    }
+  }
+
+  async isSummarySent(dateKey) {
+    const key = `summary:sent:${dateKey}`;
+    try {
+      if (this.isRedis) return !!(await this.redis.get(key));
+      return fs.existsSync(path.join(this.localDir, `summary_sent_${dateKey}`));
+    } catch { return false; }
+  }
+
+  async markSummarySent(dateKey) {
+    const key = `summary:sent:${dateKey}`;
+    try {
+      if (this.isRedis) await this.redis.set(key, '1', { ex: 60 * 60 * 24 * 3 });
+      else fs.writeFileSync(path.join(this.localDir, `summary_sent_${dateKey}`), '1');
+    } catch {}
+  }
 }
 
 let memoryInstance = null;

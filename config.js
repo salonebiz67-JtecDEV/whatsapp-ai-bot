@@ -37,7 +37,9 @@ export const config = {
   location: process.env.LOCATION || 'Freetown, Sierra Leone',            // e.g. London, UK (optional, shown to the AI)
   goals: process.env.GOALS || "Reply to Johnny's WhatsApp messages for him. Greet back, chat casually, and handle simple things. If someone asks something personal or something you can't answer, say you're Johnny Tech, Johnny's personal assistant, and you'll let Johnny know when he's back.",
   customRules: process.env.CUSTOM_RULES || '',
-  adminKey: process.env.ADMIN_KEY || '',   // protects /import /agent /stats /clear-sessions
+  adminKey: process.env.ADMIN_KEY || '',
+  summaryEnabled: (process.env.SUMMARY_ENABLED || 'true').toLowerCase() !== 'false',   // nightly summary on your WhatsApp
+  summaryHour: parseInt(process.env.SUMMARY_HOUR || '21', 10),                          // hour of day (0-23) in your TIMEZONE   // protects /import /agent /stats /clear-sessions
   fastReplies: (process.env.HUMAN_DELAYS || 'false').toLowerCase() !== 'true',  // set HUMAN_DELAYS=true for slow typing simulation
   maxHistory: parseInt(process.env.MAX_HISTORY || '20', 10),
   maxPerHour: parseInt(process.env.MAX_PER_HOUR || '60', 10),

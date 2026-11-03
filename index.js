@@ -8,6 +8,7 @@ import { getMemoryStore } from './memory.js';
 import { generateReply, isHandoffRequest, parseOwnerCommand, getOwnerHelpText, getNigerianTimeContext } from './ai.js';
 import { extractOwnerStyleFromExport } from './import.js';
 import fs from 'fs';
+import { recordExchange, startSummaryScheduler, sendSummary, buildSummary, summaryInfo } from './summary.js';
 import { getAgentManager, parseAgentCommand, parseNaturalAgentIntent, extractNumbersFromVcard, extractNumbersRobust } from './agent.js';
 
 // Suppress noisy Bad MAC stack traces - keep logs clean, only show summary
@@ -110,6 +111,7 @@ async function handleApi(req, res, reqPath) {
         paused: !!global.botPaused,
         stats: global.stats,
         pairing: global.pairing,
+        summary: await summaryInfo().catch(() => null),
         phoneNumber: config.phoneNumber,
         settings: {
           ownerName: config.ownerName, assistantName: config.assistantName, location: config.location,
@@ -172,6 +174,15 @@ async function handleApi(req, res, reqPath) {
         console.error('Pairing code failed:', e.message);
         return sendJson(res, 500, { error: 'WhatsApp refused the code request: ' + e.message });
       }
+    }
+    if (reqPath === '/api/summary') {
+      if (body.action === 'send') {
+        if (global.botStatus !== 'connected' || !sock) return sendJson(res, 400, { error: 'WhatsApp is not connected right now.' });
+        const r = await sendSummary(sock, { markSent: false });
+        return sendJson(res, 200, { ok: true, text: r.text, message: 'Summary sent to your WhatsApp.' });
+      }
+      const r = await buildSummary();
+      return sendJson(res, 200, { ok: true, text: r.text, usedAI: r.usedAI });
     }
     if (reqPath === '/api/test') {
       const message = String(body.message || '').slice(0, 1000);
@@ -513,6 +524,7 @@ async function startBot() {
         console.log(`📚 [${instanceId}] Import: /import | Agent: /agent | Natural language: ON | Time: ${config.timezone}`);
         global.botStatus = 'connected';
         global.pairing = null;
+        startSummaryScheduler(() => sock);
         pairingCodeRequested = false;
         isStarting = false;
       } else if (connection === 'connecting') {
@@ -977,6 +989,7 @@ async function handleMessage(msg) {
       await sock.sendMessage(jid, { text: cleanHandoffMsg });
       console.log(`📤 Handoff message sent to ${contactName}: ${handoffMsg.slice(0,100)}...`);
       await memory.addMessage(jid, 'assistant', handoffMsg);
+      recordExchange({ jid, name: contactName, incoming: messageContent, reply: cleanHandoffMsg, handoff: true, reason });
       
       // Notify owner via self-chat
       try {
@@ -996,6 +1009,7 @@ async function handleMessage(msg) {
     global.stats.replied++;
     console.log(`🤖 Assistant replied to ${contactName}: ${aiReply.slice(0,100)}...`);
     await memory.addMessage(jid, 'assistant', aiReply);
+    recordExchange({ jid, name: contactName, incoming: messageContent, reply: aiReply });
     
     // Track disclosure if this reply included disclosure
     if (shouldDisclose) {

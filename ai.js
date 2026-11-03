@@ -553,6 +553,29 @@ Time: ${timeContext.formatted} - use "${timeContext.greeting}" if you greet.
   return generatedReply;
 }
 
+// Plain text generation (no persona, no chat history). Used for the nightly summary. Returns null if every provider fails.
+export async function generateText(prompt, systemPrompt = 'You write short, clear, accurate summaries. Only use facts you are given.') {
+  const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+  if (config.geminiApiKey) {
+    const models = [...new Set([config.geminiModel, 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-flash-latest'])];
+    for (const name of models) {
+      try {
+        const m = initGemini(name, systemPrompt);
+        const r = await withTimeout(m.generateContent({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 1500, temperature: 0.3 } }), 25000);
+        const t = r.response.text();
+        if (t && t.trim()) return t.trim();
+      } catch (e) { console.warn(`generateText ${name}: ${(e.message || '').slice(0, 120)}`); }
+    }
+  }
+  if (config.groqApiKey) {
+    try {
+      return await callOpenAICompatible({ apiKey: config.groqApiKey, baseUrl: 'https://api.groq.com/openai/v1', model: config.groqModel, providerName: 'Groq',
+        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }] });
+    } catch (e) { console.warn('generateText Groq: ' + (e.message || '').slice(0, 120)); }
+  }
+  return null;
+}
+
 export function isHandoffRequest(text) {
   if (!text) return false;
   const lower = text.toLowerCase();

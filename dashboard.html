@@ -112,6 +112,18 @@
     <div id="ctlMsg" class="msg"></div>
   </div>
 
+  <!-- SUMMARY -->
+  <div class="card">
+    <h2>Daily summary</h2>
+    <div id="sumInfo" class="steps">Loading…</div>
+    <div class="row" style="margin-top:10px">
+      <button class="grow" onclick="sumPreview()">👁 Preview today</button>
+      <button class="grow primary" onclick="sumSend()">📤 Send to my WhatsApp now</button>
+    </div>
+    <div id="sumText" class="reply hidden"></div>
+    <div id="sumMsg" class="msg"></div>
+  </div>
+
   <!-- TEST -->
   <div class="card">
     <h2>Test the AI (nothing is sent on WhatsApp)</h2>
@@ -193,6 +205,13 @@ function renderStatus(s) {
   if (!$('pairNumber').value && s.phoneNumber) $('pairNumber').value = s.phoneNumber;
   pairing = (!s.connected && s.pairing) ? s.pairing : null;
   renderPairing();
+
+  if (s.summary) {
+    var sm = s.summary;
+    $('sumInfo').textContent = sm.enabled
+      ? 'Sent to your WhatsApp every night at ' + ('0' + sm.hour).slice(-2) + ':00 (' + sm.timezone + '). Today: ' + (sm.sentToday ? 'already sent ✅' : 'not sent yet.')
+      : 'Turned off (SUMMARY_ENABLED=false in Render).';
+  }
 
   var st = s.settings || {};
   var rows = [
@@ -280,6 +299,17 @@ function fixMac() {
 }
 function togglePause() {
   api('/api/pause', { method: 'POST', body: JSON.stringify({ paused: !paused }) }).then(function () { poll(); }).catch(function (e) { flash('ctlMsg', e.message || 'Failed', false); });
+}
+function sumPreview() {
+  var box = $('sumText'); box.classList.remove('hidden'); box.textContent = 'Writing summary…';
+  api('/api/summary', { method: 'POST', body: JSON.stringify({ action: 'preview' }) }).then(function (r) { box.textContent = r.text; })
+    .catch(function (e) { box.textContent = 'Error: ' + (e.message || 'failed'); });
+}
+function sumSend() {
+  flash('sumMsg', 'Sending…', true);
+  api('/api/summary', { method: 'POST', body: JSON.stringify({ action: 'send' }) }).then(function (r) {
+    var box = $('sumText'); box.classList.remove('hidden'); box.textContent = r.text; flash('sumMsg', r.message, true);
+  }).catch(function (e) { flash('sumMsg', e.message || 'Failed', false); });
 }
 function openPage(p) { location.href = p + '?key=' + encodeURIComponent(KEY); }
 function testAI() {
