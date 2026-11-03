@@ -36,11 +36,24 @@ console.error = (...args) => {
   originalConsoleError(...args);
 };
 
+function isAuthorized(req) {
+  if (!config.adminKey) return false;
+  const u = new URL(req.url, 'http://localhost');
+  const k = req.headers['x-admin-key'] || u.searchParams.get('key');
+  return k === config.adminKey;
+}
+
 const server = http.createServer(async (req, res) => {
-  if (req.url === '/health' || req.url === '/') {
+  const reqPath = req.url.split('?')[0];
+  if (['/clear-sessions', '/import', '/agent', '/stats'].includes(reqPath) && !isAuthorized(req)) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Unauthorized. Set ADMIN_KEY in Render env vars and open the URL with ?key=YOUR_ADMIN_KEY' }));
+    return;
+  }
+  if (reqPath === '/health' || reqPath === '/') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', uptime: process.uptime(), bot: global.botStatus || 'starting', timestamp: new Date().toISOString(), instanceId: global.instanceId || 'unknown' }));
-  } else if (req.url === '/clear-sessions' && (req.method === 'GET' || req.method === 'POST')) {
+  } else if (reqPath === '/clear-sessions' && (req.method === 'GET' || req.method === 'POST')) {
     // Clear Bad MAC sessions - fixes decryption errors
     try {
       const mem = await getMemoryStore();
@@ -57,22 +70,23 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: false, error: e.message }));
     }
-  } else if (req.url === '/import' && req.method === 'GET') {
+  } else if (reqPath === '/import' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(`<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Import Old Chats + Agent Control</title><style>body{font-family:system-ui;padding:20px;max-width:700px;margin:auto;background:#f5f5f5} .card{background:white;padding:20px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.1);margin-bottom:20px} textarea{width:100%;height:200px;padding:12px;border:1px solid #ddd;border-radius:8px;font-family:monospace;font-size:13px} input,button{padding:12px;border-radius:8px;border:1px solid #ddd;margin:5px 0;width:100%} button{background:#25D366;color:white;border:none;font-weight:bold;cursor:pointer} button:hover{background:#128C7E} .info{background:#e8f5e9;padding:12px;border-radius:8px;margin:10px 0;font-size:14px} .agent{background:#fff3e0;padding:12px;border-radius:8px;margin:10px 0}</style></head><body>
 <h2>📚 Import Old Chats + 🤖 Agent Control</h2>
 <div class="card"><h3>Import Old Chats</h3><div class="info">Export: WhatsApp → Chat → 3 dots → More → Export → Without media → Copy .txt</div><label>Number (234...):</label><input id="jid" placeholder="2348012345678" /><label>Your name in export:</label><input id="ownerName" placeholder="You" value="You" /><label>Paste .txt:</label><textarea id="chatText"></textarea><button onclick="importChat()">📥 Import</button><div id="result"></div></div>
 <div class="card"><h3>🤖 Agent Control - Message people with goals</h3><div class="agent"><b>How to use from your self-chat:</b><br>Just talk naturally! No / needed<br>Examples:<br>• "Greet 0901 434 7620, ask how they are, ma for female Sir for male"<br>• Share contacts via WhatsApp, then say "greet them all"<br>• "0901 434 7620 0811 003 3639 greet them"<br>• Old: /agent 234... | Goal: ...</div>
 <label>Numbers (comma separated):</label><input id="agentNumbers" placeholder="2348012345678,2348023456789" />
-<label>Goal / Task:</label><textarea id="agentGoal" placeholder="Ask them about the project and get them to agree to send Opay. End when they say they will send."></textarea>
+<label>Goal / Task:</label><textarea id="agentGoal" placeholder="Greet them, ask how they are, and let them know the owner will reach out about the meeting."></textarea>
 <button onclick="startAgent()">🚀 Start Agent Task</button><div id="agentResult"></div></div>
 <div class="card"><h3>📊 Stats</h3><button onclick="loadStats()">Refresh</button><div id="stats"></div></div>
 <script>
-async function importChat(){const jid=document.getElementById('jid').value.trim();const ownerName=document.getElementById('ownerName').value.trim()||'You';const chatText=document.getElementById('chatText').value.trim();if(!jid||!chatText){alert('Enter number and chat');return;}document.getElementById('result').innerHTML='⏳...';try{const res=await fetch('/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jid,ownerName,chatText})});const data=await res.json();document.getElementById('result').innerHTML='<div style="background:#e8f5e9;padding:12px;border-radius:8px">✅ '+data.message+'<br>Learned '+data.learned+'</div>';}catch(e){document.getElementById('result').innerHTML='❌ '+e.message;}}
-async function startAgent(){const numbers=document.getElementById('agentNumbers').value.trim();const goal=document.getElementById('agentGoal').value.trim();if(!numbers||!goal){alert('Enter numbers and goal');return;}document.getElementById('agentResult').innerHTML='⏳ Starting...';try{const res=await fetch('/agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({numbers,goal})});const data=await res.json();document.getElementById('agentResult').innerHTML='<div style="background:#fff3e0;padding:12px;border-radius:8px">✅ '+data.message+'</div>';}catch(e){document.getElementById('agentResult').innerHTML='❌ '+e.message;}}
-async function loadStats(){document.getElementById('stats').innerHTML='⏳...';try{const res=await fetch('/stats');const data=await res.json();let html='<p>Contacts: '+data.totalContacts+' | Active agent tasks: '+(data.agentTasks||0)+'</p>';for(const c of data.contacts){html+='<div style="border:1px solid #eee;padding:10px;margin:5px 0;border-radius:8px"><b>'+c.jid+'</b> - '+c.count+'<br><small>'+(c.preview||'').slice(0,80)+'</small></div>';}document.getElementById('stats').innerHTML=html;}catch(e){document.getElementById('stats').innerHTML='Error: '+e.message;}}loadStats();
+const KEY=new URLSearchParams(location.search).get('key')||'';
+async function importChat(){const jid=document.getElementById('jid').value.trim();const ownerName=document.getElementById('ownerName').value.trim()||'You';const chatText=document.getElementById('chatText').value.trim();if(!jid||!chatText){alert('Enter number and chat');return;}document.getElementById('result').innerHTML='⏳...';try{const res=await fetch('/import',{method:'POST',headers:{'Content-Type':'application/json','x-admin-key':KEY},body:JSON.stringify({jid,ownerName,chatText})});const data=await res.json();document.getElementById('result').innerHTML='<div style="background:#e8f5e9;padding:12px;border-radius:8px">✅ '+data.message+'<br>Learned '+data.learned+'</div>';}catch(e){document.getElementById('result').innerHTML='❌ '+e.message;}}
+async function startAgent(){const numbers=document.getElementById('agentNumbers').value.trim();const goal=document.getElementById('agentGoal').value.trim();if(!numbers||!goal){alert('Enter numbers and goal');return;}document.getElementById('agentResult').innerHTML='⏳ Starting...';try{const res=await fetch('/agent',{method:'POST',headers:{'Content-Type':'application/json','x-admin-key':KEY},body:JSON.stringify({numbers,goal})});const data=await res.json();document.getElementById('agentResult').innerHTML='<div style="background:#fff3e0;padding:12px;border-radius:8px">✅ '+data.message+'</div>';}catch(e){document.getElementById('agentResult').innerHTML='❌ '+e.message;}}
+async function loadStats(){document.getElementById('stats').innerHTML='⏳...';try{const res=await fetch('/stats',{headers:{'x-admin-key':KEY}});const data=await res.json();let html='<p>Contacts: '+data.totalContacts+' | Active agent tasks: '+(data.agentTasks||0)+'</p>';for(const c of data.contacts){html+='<div style="border:1px solid #eee;padding:10px;margin:5px 0;border-radius:8px"><b>'+c.jid+'</b> - '+c.count+'<br><small>'+(c.preview||'').slice(0,80)+'</small></div>';}document.getElementById('stats').innerHTML=html;}catch(e){document.getElementById('stats').innerHTML='Error: '+e.message;}}loadStats();
 </script></body></html>`);
-  } else if (req.url === '/import' && req.method === 'POST') {
+  } else if (reqPath === '/import' && req.method === 'POST') {
     let body = ''; req.on('data', c => body += c);
     req.on('end', async () => {
       try {
@@ -88,7 +102,7 @@ async function loadStats(){document.getElementById('stats').innerHTML='⏳...';t
         res.end(JSON.stringify({ success: true, message: `Imported ${result.totalMessages} msgs (${result.ownerCount} you)`, learned }));
       } catch (e) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ success: false, error: e.message })); }
     });
-  } else if (req.url === '/agent' && req.method === 'POST') {
+  } else if (reqPath === '/agent' && req.method === 'POST') {
     let body = ''; req.on('data', c => body += c);
     req.on('end', async () => {
       try {
@@ -115,7 +129,7 @@ async function loadStats(){document.getElementById('stats').innerHTML='⏳...';t
         res.end(JSON.stringify({ success: true, message: `Started ${started} agent tasks with goal: ${goal}` }));
       } catch (e) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ success: false, error: e.message })); }
     });
-  } else if (req.url === '/stats') {
+  } else if (reqPath === '/stats') {
     try {
       const mem = await getMemoryStore();
       let contacts = [];
@@ -158,13 +172,17 @@ server.listen(config.port, '0.0.0.0', () => {
   console.log(`💓 Keep-alive enabled: pinging /health every 4 minutes to prevent Render sleep`);
   
   // External ping every 5 minutes to public URL (if available) - backup
-  const PUBLIC_URL = process.env.RENDER_EXTERNAL_URL || 'https://whatsapp-ai-bot-xvp1.onrender.com';
-  setInterval(async () => {
-    try {
-      const res = await fetch(`${PUBLIC_URL}/health`);
-      console.log(`🌐 External keep-alive: ${PUBLIC_URL}/health -> ${res.status}`);
-    } catch {}
-  }, 5 * 60 * 1000);
+  const PUBLIC_URL = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL || '';
+  if (PUBLIC_URL) {
+    setInterval(async () => {
+      try {
+        const res = await fetch(`${PUBLIC_URL}/health`);
+        console.log(`🌐 External keep-alive: ${PUBLIC_URL}/health -> ${res.status}`);
+      } catch {}
+    }, 4 * 60 * 1000);
+  } else {
+    console.warn('⚠️ RENDER_EXTERNAL_URL / PUBLIC_URL not set - external keep-alive disabled (use UptimeRobot on /health)');
+  }
 });
 
 global.botStatus = 'starting';
@@ -183,6 +201,24 @@ global.instanceId = instanceId;
 // Prevent double-reply when owner is typing / recently replied
 const processingJids = new Set();
 const recentlyProcessed = new Map(); // jid -> timestamp to debounce duplicate decrypts
+
+// Each chat has its own queue (messages inside a chat are answered in order, different chats run in parallel).
+// If several messages from one person are waiting, only the LAST one gets a reply (it sees all of them in history).
+const jidChains = new Map();
+const jidPending = new Map();
+function enqueueMessage(msg) {
+  const jid = msg.key.remoteJid;
+  if (!jid) return;
+  const run = () => handleMessage(msg).catch(err => console.error(`[${instanceId}] Error handling message:`, err));
+  if (msg.key.fromMe) { run(); return; } // owner's own messages must never wait behind a bot reply
+  jidPending.set(jid, (jidPending.get(jid) || 0) + 1);
+  const prev = jidChains.get(jid) || Promise.resolve();
+  const next = prev.then(run).finally(() => {
+    const n = (jidPending.get(jid) || 1) - 1;
+    if (n <= 0) { jidPending.delete(jid); jidChains.delete(jid); } else jidPending.set(jid, n);
+  });
+  jidChains.set(jid, next);
+}
 
 async function startBot() {
   if (isStarting) {
@@ -204,7 +240,7 @@ async function startBot() {
     // Auto-clear old corrupted sessions that cause Bad MAC - one time fix
     if (auth.clearSessions) {
       try {
-        const shouldAutoClear = process.env.AUTO_CLEAR_SESSIONS !== 'false';
+        const shouldAutoClear = process.env.AUTO_CLEAR_SESSIONS === 'true';
         if (shouldAutoClear) {
           console.log(`🧹 Checking for old corrupted sessions that cause Bad MAC...`);
           const cleared = await auth.clearSessions();
@@ -313,10 +349,14 @@ async function startBot() {
     });
 
     sock.ev.on('creds.update', auth.saveCreds);
-    sock.ev.on('messages.upsert', async ({ messages, type }) => {
-      if (type !== 'notify') return;
+    sock.ev.on('messages.upsert', ({ messages, type }) => {
       for (const msg of messages) {
-        try { await handleMessage(msg); } catch (err) { console.error(`[${instanceId}] Error handling message:`, err); }
+        if (type !== 'notify') {
+          // 'append' = messages that arrived while offline / reconnecting. Answer recent ones only.
+          const ts = Number(msg.messageTimestamp || 0) * 1000;
+          if (type !== 'append' || msg.key.fromMe || !ts || Date.now() - ts > 10 * 60 * 1000) continue;
+        }
+        enqueueMessage(msg);
       }
     });
 
@@ -561,10 +601,6 @@ async function handleMessage(msg) {
   }
 
   // Prevent concurrent processing of same chat
-  if (processingJids.has(jid)) {
-    console.log(`⏳ Already processing ${jid}, skipping to avoid double reply`);
-    return;
-  }
 
   console.log(`\n📩 From ${contactName} (${jid}): ${messageContent?.slice(0,100)} ${mediaInfo ? `[${mediaInfo.type}]` : ''}`);
 
@@ -620,6 +656,10 @@ async function handleMessage(msg) {
   try {
     const historyText = messageContent || (mediaInfo ? `[${mediaInfo.type} ${mediaInfo.caption ? ': ' + mediaInfo.caption : ''}]` : '');
     await memory.addMessage(jid, 'user', historyText);
+    if ((jidPending.get(jid) || 0) > 1 && !mediaInfo) {
+      console.log(`⏭️ Newer message from ${contactName} already waiting - it will answer for both`);
+      return;
+    }
     const history = await memory.getHistory(jid);
     const ownerStyle = await memory.getOwnerStyle(jid);
     const ownerStyleTexts = ownerStyle.map(s => s.content);
@@ -701,7 +741,7 @@ async function handleMessage(msg) {
         let isAfterHandoff = false;
         if (history.length > 0) {
           const lastAssistant = [...history].reverse().find(h => h.role === 'assistant');
-          if (lastAssistant && (lastAssistant.content.includes('let me have Bethel get back to you directly') || lastAssistant.content.includes('Bethel will reply himself') || lastAssistant.content.includes('Handoff'))) {
+          if (lastAssistant && (lastAssistant.content.includes('pass this to') || lastAssistant.content.includes('Handoff'))) {
             isAfterHandoff = true;
           }
         }
@@ -860,7 +900,7 @@ async function handleAgentCommand(agentCmd, ownerJid) {
           genderInstruction = goal;
         }
         
-        const initialPrompt = `You are Bethel's transparent WhatsApp assistant handling ONLY casual small talk. You are NOT Bethel.
+        const initialPrompt = `AGENT OUTREACH: You are ${config.assistantName}, ${config.ownerName}'s AI assistant, sending the FIRST message to this contact.
 
 Goal for this contact: ${genderInstruction}
 
@@ -868,21 +908,15 @@ Context:
 - Contact: ${targetJid.split('@')[0]}
 - Detected gender hint: ${genderHint}
 - TIME: ${timeCtx.formatted} - ${timeCtx.greetingInstruction}
-- Casual tone reference (filtered, no romantic/financial): ${styleTexts.slice(-3).join(' | ').slice(0,200)}
+- Tone reference: ${styleTexts.slice(-3).join(' | ').slice(0,200)}
 
 STRICT RULES:
-- You are assistant, NOT owner. Be transparent for light messages.
-- NO financial language ever: no money, accounts, bank, Opay, transfer, payment, naira
-- NO romantic/flirty tone or emojis 🥰😍💞😘💋 - only simple 🙂🙏
-- Casual small talk ONLY: greetings, light banter, scheduling
-- If goal contains anything serious/personal/financial/romantic, you must NOT do it - instead say you'll have Bethel reply directly
-- Keep short 1-2 lines, friendly, use "${timeCtx.greeting}" appropriately for ${timeCtx.period}
-- Include title ma/Sir if gender known, but platonic friendly only
+- You are an AI assistant, not ${config.ownerName}. Say so briefly if this is your first message to them.
+- NO money, accounts, bank or payment talk. NO romantic or flirty tone.
+- If the goal asks for anything financial, romantic or sensitive, don't do it; say ${config.ownerName} will reach out directly.
+- Keep it short (1-2 lines), friendly, use "${timeCtx.greeting}" for ${timeCtx.period}. Use ma/Sir only if gender is known.
 
-Write ONLY the first message as assistant handling light check-in. Example: "${timeCtx.greeting} ma, how you dey? Just checking in — Bethel asked me to help with light messages while he's busy. Hope you dey fine 🙂"
-
-Goal says: ${genderInstruction} - but filter: if goal asks for financial/romantic/serious, refuse and say Bethel will reply directly.
-`;
+Write ONLY the first message.`;
         // For agent proactive messages, check if should disclose
         let agentShouldDisclose = false;
         try {
@@ -1035,7 +1069,7 @@ async function handleAgentReply(jid, messageContent, mediaInfo, task) {
     const styleTexts = ownerStyle.map(s => s.content);
     
     const timeCtxReply = getNigerianTimeContext();
-    const goalPrompt = `You are in an AGENT TASK. Your goal: ${task.goal}. You are chatting with ${jid.split('@')[0]}. Continue conversation to achieve goal. Current step ${task.steps}/${task.maxSteps}. Be owner, use unique style, be seamless. If goal achieved, say so naturally and wrap up. TIME: ${timeCtxReply.formatted} - Use time-appropriate greeting if greeting needed.`;
+    const goalPrompt = `You are in an AGENT TASK. Your goal: ${task.goal}. You are chatting with ${jid.split('@')[0]}. Continue conversation to achieve goal. Current step ${task.steps}/${task.maxSteps}. You are ${config.assistantName}, ${config.ownerName}'s AI assistant (never claim to be ${config.ownerName}). Keep it natural and short. If goal achieved, say so naturally and wrap up. TIME: ${timeCtxReply.formatted} - Use time-appropriate greeting if greeting needed.`;
     
     const fullHistory = [...history.slice(0, -1), { role: 'system', content: goalPrompt }];
     
@@ -1197,7 +1231,7 @@ async function handleOwnerCommand(cmd, currentJid) {
         }
         await sock.sendMessage(sendTo, { text: `✅ Cleared ${cleared} session keys!\n\nBad MAC should be fixed now. Future messages will decrypt correctly. Old queued messages that failed to decrypt are lost, but new messages will work.\n\nIf still seeing Bad MAC, you may need to re-pair once.` });
       } catch (e) {
-        await sock.sendMessage(sendTo, { text: `❌ Failed to clear sessions: ${e.message}\n\nTry via web: https://whatsapp-ai-bot-xvp1.onrender.com/clear-sessions` });
+        await sock.sendMessage(sendTo, { text: `❌ Failed to clear sessions: ${e.message}\n\nTry the /clear-sessions web endpoint with your ADMIN_KEY.` });
       }
       break;
     }
@@ -1276,6 +1310,7 @@ function getRandomFloat(min, max) {
 // Realistic "seen but not yet responding" gap - like person glancing at phone before replying
 // Weighted: 60% quick (2-6s), 25% medium (7-15s), 10% slow (16-35s), 5% very slow (40-90s) for natural variation
 function getSeenDelay(isMedia = false) {
+  if (config.fastReplies) return getRandomInt(300, isMedia ? 2500 : 1500);
   const rand = Math.random();
   let baseMin, baseMax;
   
@@ -1311,6 +1346,7 @@ function getSeenDelay(isMedia = false) {
 // Typing duration roughly matching message length - like real person typing on phone
 // Short replies = quick, long replies = longer typing, with natural variation
 function getTypingDuration(text) {
+  if (config.fastReplies) return Math.min(3000, Math.max(600, Math.floor((text || '').length * 30)));
   if (!text) return getRandomInt(1000, 2500);
   
   const len = text.length;
@@ -1363,6 +1399,7 @@ function getTypingDuration(text) {
 
 // Small thinking gap before typing starts (after seen delay, before typing indicator)
 function getThinkingGap() {
+  if (config.fastReplies) return getRandomInt(100, 500);
   // 0.5-2.5s gap like person thinking what to say
   return getRandomInt(500, 2500);
 }
