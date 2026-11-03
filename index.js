@@ -5,7 +5,7 @@ import http from 'http';
 import { config, validateConfig } from './config.js';
 import { createAuthState } from './auth.js';
 import { getMemoryStore } from './memory.js';
-import { RELATIONSHIP_OPTIONS, generateReply, isHandoffRequest, parseOwnerCommand, getOwnerHelpText, getNigerianTimeContext } from './ai.js';
+import { RELATIONSHIP_OPTIONS, generateReply, parseOwnerCommand, getOwnerHelpText, getNigerianTimeContext } from './ai.js';
 import { extractOwnerStyleFromExport } from './import.js';
 import fs from 'fs';
 import { trackChat } from './chats.js';
@@ -883,17 +883,6 @@ async function handleMessage(msg) {
     return;
   }
 
-  if (messageContent && isHandoffRequest(messageContent)) {
-    console.log(`🙋 Handoff by ${jid}`);
-    await memory.addMessage(jid, 'user', messageContent);
-    await delayRandom();
-    await sock.sendMessage(jid, { text: "No worries, I'll get back to you shortly 🙏" });
-    await memory.addMessage(jid, 'assistant', 'Handoff');
-    trackChat(jid, { role: 'bot', text: "No worries, I'll get back to you shortly 🙏" });
-    notifyOwner(`🙋 *Needs you*\n\n${contactName} (+${jid.split('@')[0]}) asked to talk to you directly:\n"${(messageContent || '').slice(0, 200)}"`);
-    return;
-  }
-
   // Mark as processing to prevent double replies
   processingJids.add(jid);
   try {
@@ -963,53 +952,8 @@ async function handleMessage(msg) {
     // If we have transcription, use it as the message, otherwise use original
     const finalMessageForAI = transcribedText || messageContent || historyText;
     
-    // ===== DISCLOSURE FREQUENCY LOGIC =====
-    // Disclose first time to new contact, first after handoff/away, or after 2+ weeks gap
-    // After that, chat naturally without re-announcing
-    let shouldDisclose = false;
-    let isForcedDisclosure = false;
-    try {
-      // Always check identity question first - forced disclosure
-      const { isIdentityQuestion } = await import('./ai.js');
-      if (isIdentityQuestion(finalMessageForAI)) {
-        shouldDisclose = true;
-        isForcedDisclosure = true;
-        console.log(`📢 Forced disclosure for ${jid} - identity question asked`);
-      } else {
-        const lastDisclosure = await memory.getLastDisclosure(jid);
-        const isNewContact = ownerStyleTexts.length === 0 && history.length <= 2;
-        const shouldByTime = await memory.shouldDisclose(jid);
-        
-        // Check if last assistant message was handoff - first after handoff should disclose
-        let isAfterHandoff = false;
-        if (history.length > 0) {
-          const lastAssistant = [...history].reverse().find(h => h.role === 'assistant');
-          if (lastAssistant && (lastAssistant.content.includes('pass this to') || lastAssistant.content.includes('Handoff'))) {
-            isAfterHandoff = true;
-          }
-        }
-        
-        // Also check if handoff currently active but about to expire? Actually if we are here, handoff not active
-        // Disclosure conditions:
-        // - Never disclosed before
-        // - More than 2 weeks since last disclosure
-        // - New contact
-        // - First after handoff
-        if (!lastDisclosure || shouldByTime || isNewContact || isAfterHandoff) {
-          shouldDisclose = true;
-          const reason = !lastDisclosure ? 'never disclosed' : shouldByTime ? '2+ weeks gap' : isNewContact ? 'new contact' : 'after handoff';
-          console.log(`📢 Disclosure needed for ${jid}: ${reason} - last: ${lastDisclosure ? new Date(lastDisclosure).toLocaleDateString() : 'never'}`);
-        } else {
-          console.log(`📢 No disclosure needed for ${jid} - last disclosure ${Math.floor((Date.now()-lastDisclosure)/86400000)} days ago`);
-        }
-      }
-    } catch (e) {
-      console.error('Disclosure check error:', e.message);
-      shouldDisclose = false;
-    }
-    
     const aiMeta = {};
-    const aiReply = await generateReply(jid, finalMessageForAI, history.slice(0, -1), ownerStyleTexts, mediaForAI, { shouldDisclose, isForcedDisclosure, meta: aiMeta });
+    const aiReply = await generateReply(jid, finalMessageForAI, history.slice(0, -1), ownerStyleTexts, mediaForAI, { meta: aiMeta });
 
     // ===== HUMAN-LIKE TYPING: Duration matches message length =====
     // Only show typing indicator AFTER we have reply, and for duration matching length
@@ -1063,17 +1007,15 @@ Please reply directly, this sounds important/personal.\n\n_This contact needs YO
     await memory.addMessage(jid, 'assistant', aiReply);
     recordExchange({ jid, name: contactName, incoming: messageContent, reply: aiReply });
     trackChat(jid, { role: 'bot', text: aiReply });
-    if (aiMeta.needsOwner) notifyOwner(`🙋 *Needs you*\n\n${contactName} (+${jid.split('@')[0]}) asked:\n"${(messageContent || '').slice(0, 220)}"\n\n${config.assistantName} told them you'll get back to them.`);
+    if (aiMeta.needsOwner) notifyOwner(`🙋 *Needs you*
+
+${contactName} (+${jid.split('@')[0]})${aiMeta.note ? ': ' + aiMeta.note : ' needs you'}
+
+Their message: "${(messageContent || '').slice(0, 220)}"
+
+${config.assistantName} told them you'll get back to them.`);
     
-    // Track disclosure if this reply included disclosure
-    if (shouldDisclose) {
-      try {
-        await memory.setLastDisclosure(jid);
-        console.log(`📢 Disclosure tracked for ${jid}`);
-      } catch {}
-    }
-    
-    await sock.sendPresenceUpdate('paused', jid);
+        await sock.sendPresenceUpdate('paused', jid);
 
   } catch (err) {
     console.error(`Error replying to ${jid}:`, err);
@@ -1324,18 +1266,7 @@ async function handleAgentReply(jid, messageContent, mediaInfo, task) {
       mediaForAI = { type: 'voice', transcription, mimeType: 'audio/ogg' };
     }
     
-    // Check disclosure for agent replies
-    let agentReplyShouldDisclose = false;
-    try {
-      const lastDisc = await memory.getLastDisclosure(jid);
-      if (!lastDisc || Date.now() - lastDisc > 14*24*60*60*1000) {
-        // Only disclose if identity question or long gap, not every agent reply
-        const { isIdentityQuestion } = await import('./ai.js');
-        if (isIdentityQuestion(actualContent || historyText)) agentReplyShouldDisclose = true;
-      }
-    } catch {}
-    
-    const aiReply = await generateReply(jid, actualContent || historyText, fullHistory, styleTexts, mediaForAI, { shouldDisclose: agentReplyShouldDisclose });
+    const aiReply = await generateReply(jid, actualContent || historyText, fullHistory, styleTexts, mediaForAI, {});
     
     // Human-like typing for agent - duration matches length
     await delay(getThinkingGap());

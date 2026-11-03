@@ -66,7 +66,7 @@ services:
       - key: GEMINI_MODEL
         value: gemini-3.6-flash
       - key: MAX_HISTORY
-        value: 20
+        value: 30
       - key: MAX_PER_HOUR
         value: 60
       - key: HANDOFF_MINUTES

@@ -41,7 +41,7 @@ export const config = {
   summaryEnabled: (process.env.SUMMARY_ENABLED || 'true').toLowerCase() !== 'false',   // nightly summary on your WhatsApp
   summaryHour: parseInt(process.env.SUMMARY_HOUR || '21', 10),                          // hour of day (0-23) in your TIMEZONE   // protects /import /agent /stats /clear-sessions
   fastReplies: (process.env.HUMAN_DELAYS || 'false').toLowerCase() !== 'true',  // set HUMAN_DELAYS=true for slow typing simulation
-  maxHistory: parseInt(process.env.MAX_HISTORY || '20', 10),
+  maxHistory: parseInt(process.env.MAX_HISTORY || '30', 10),
   maxPerHour: parseInt(process.env.MAX_PER_HOUR || '60', 10),
   handoffMinutes: parseInt(process.env.HANDOFF_MINUTES || '30', 10),
   ownerTakeoverPauseMinutes: parseInt(process.env.OWNER_TAKEOVER_PAUSE_MINUTES || '5', 10),
