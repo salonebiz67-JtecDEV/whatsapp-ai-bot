@@ -30,9 +30,11 @@ export const config = {
   bankInfo: process.env.BANK_INFO || process.env.PAYMENT_INFO || '',
   // ===== YOUR IDENTITY (edit these in Render env vars, no code changes needed) =====
   ownerName: process.env.OWNER_NAME || 'Boss',                       // the real person (you)
-  assistantName: process.env.ASSISTANT_NAME || 'Brim',               // the AI's own name
-  persona: process.env.PERSONA || 'Friendly, sharp, warm and helpful. Talks like a real young Nigerian: relaxed, short sentences, light humour, never stiff or robotic.',
-  languageStyle: process.env.LANGUAGE_STYLE || 'Match the contact: English, Nigerian Pidgin, or a mix, whichever they use. Keep it natural.',
+  assistantName: process.env.ASSISTANT_NAME || 'Johnny Tech',               // the AI's own name
+  persona: process.env.PERSONA || 'Friendly, sharp, warm and helpful. Relaxed and natural, short sentences, light humour, never stiff or robotic.',
+  languageStyle: process.env.LANGUAGE_STYLE || 'Reply in the same language and style the contact uses. Keep it natural.',
+  timezone: process.env.TIMEZONE || 'UTC',        // e.g. Europe/London, America/New_York, Africa/Accra
+  location: process.env.LOCATION || '',            // e.g. London, UK (optional, shown to the AI)
   goals: process.env.GOALS || '1) Reply to every message quickly. 2) Be useful: answer questions, take messages, set up calls/meetings. 3) Pass anything urgent or important to the owner.',
   customRules: process.env.CUSTOM_RULES || '',
   adminKey: process.env.ADMIN_KEY || '',   // protects /import /agent /stats /clear-sessions

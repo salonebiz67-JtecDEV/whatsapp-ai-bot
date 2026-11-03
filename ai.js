@@ -269,11 +269,11 @@ export function getSafeFallbackResponse() {
 export function getNigerianTimeContext() {
   try {
     const now = new Date();
-    const options = { timeZone: 'Africa/Lagos', hour12: true, hour: 'numeric', minute: '2-digit', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    const options = { timeZone: config.timezone, hour12: true, hour: 'numeric', minute: '2-digit', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
     const full = now.toLocaleString('en-NG', options);
-    const hour24 = parseInt(now.toLocaleString('en-US', { timeZone: 'Africa/Lagos', hour: 'numeric', hour12: false }));
-    const hour12 = now.toLocaleString('en-US', { timeZone: 'Africa/Lagos', hour: 'numeric', hour12: true });
-    const minute = now.toLocaleString('en-US', { timeZone: 'Africa/Lagos', minute: '2-digit' });
+    const hour24 = parseInt(now.toLocaleString('en-US', { timeZone: config.timezone, hour: 'numeric', hour12: false }));
+    const hour12 = now.toLocaleString('en-US', { timeZone: config.timezone, hour: 'numeric', hour12: true });
+    const minute = now.toLocaleString('en-US', { timeZone: config.timezone, minute: '2-digit' });
     
     let period = '';
     let greeting = '';
@@ -282,23 +282,23 @@ export function getNigerianTimeContext() {
     if (hour24 >= 0 && hour24 < 5) {
       period = 'late night / early morning (12am - 4:59am)';
       greeting = 'Hello';
-      greetingInstruction = `It's ${hour12}:${minute} AM WAT - very late night/early morning. Use neutral "Hello" not time-specific greeting.`;
+      greetingInstruction = `It's ${hour12}:${minute} AM - very late night/early morning. Use neutral "Hello" not time-specific greeting.`;
     } else if (hour24 >= 5 && hour24 < 12) {
       period = 'morning (5am - 11:59am)';
       greeting = 'Good morning';
-      greetingInstruction = `It's morning ${hour12}:${minute} AM WAT. Use "Good morning".`;
+      greetingInstruction = `It's morning ${hour12}:${minute} AM. Use "Good morning".`;
     } else if (hour24 >= 12 && hour24 < 16) {
       period = 'afternoon (12pm - 3:59pm)';
       greeting = 'Good afternoon';
-      greetingInstruction = `It's afternoon ${hour12}:${minute} PM WAT. Use "Good afternoon".`;
+      greetingInstruction = `It's afternoon ${hour12}:${minute} PM. Use "Good afternoon".`;
     } else if (hour24 >= 16 && hour24 < 19) {
       period = 'evening (4pm - 6:59pm)';
       greeting = 'Good evening';
-      greetingInstruction = `It's evening ${hour12}:${minute} PM WAT. Use "Good evening".`;
+      greetingInstruction = `It's evening ${hour12}:${minute} PM. Use "Good evening".`;
     } else {
       period = 'night (7pm - 11:59pm)';
       greeting = 'Good evening';
-      greetingInstruction = `It's night ${hour12}:${minute} PM WAT. Use "Good evening".`;
+      greetingInstruction = `It's night ${hour12}:${minute} PM. Use "Good evening".`;
     }
     
     return {
@@ -308,7 +308,7 @@ export function getNigerianTimeContext() {
       period,
       greeting,
       greetingInstruction,
-      formatted: `Current Nigerian time: ${full} (Africa/Lagos WAT). Period: ${period}. Appropriate greeting: ${greeting}. ${greetingInstruction}`
+      formatted: `Current local time${config.location ? ' in ' + config.location : ''}: ${full} (${config.timezone}). Period: ${period}. Appropriate greeting: ${greeting}. ${greetingInstruction}`
     };
   } catch (e) {
     console.error('Time context error:', e.message);
@@ -360,7 +360,7 @@ export async function generateReply(jid, userMessage, history = [], ownerStyleSa
   let dynamicSystemPrompt = '';
 
   const timeContext = getNigerianTimeContext();
-  console.log(`⏰ Nigerian time: ${timeContext.formatted}`);
+  console.log(`⏰ Local time: ${timeContext.formatted}`);
   
   // Disclosure frequency logic
   const shouldDisclose = options.shouldDisclose || false;

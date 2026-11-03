@@ -164,7 +164,7 @@ server.listen(config.port, '0.0.0.0', () => {
       const url = `http://127.0.0.1:${config.port}/health`;
       const res = await fetch(url);
       const data = await res.json().catch(() => ({}));
-      console.log(`💓 Keep-alive ping: ${data.status || res.status} - uptime ${Math.floor(process.uptime())}s - ${new Date().toLocaleString('en-NG', { timeZone: 'Africa/Lagos' })} WAT`);
+      console.log(`💓 Keep-alive ping: ${data.status || res.status} - uptime ${Math.floor(process.uptime())}s - ${new Date().toLocaleString('en-US', { timeZone: config.timezone })}`);
     } catch (e) {
       console.error(`💓 Keep-alive failed: ${e.message}`);
     }
@@ -338,7 +338,7 @@ async function startBot() {
       } else if (connection === 'open') {
         console.log(`\n✅ [${instanceId}] Connected! Ghost + Style + Media + SUPER AGENT ON`);
         console.log(`📞 [${instanceId}] As: ${sock.user?.id || 'unknown'}`);
-        console.log(`📚 [${instanceId}] Import: /import | Agent: /agent | Natural language: ON | Time: Lagos WAT`);
+        console.log(`📚 [${instanceId}] Import: /import | Agent: /agent | Natural language: ON | Time: ${config.timezone}`);
         global.botStatus = 'connected';
         pairingCodeRequested = false;
         isStarting = false;
@@ -888,7 +888,7 @@ async function handleAgentCommand(agentCmd, ownerJid) {
       }
       console.log(`🎭 Gender hint for ${targetJid}: ${genderHint} (from ${styleTexts.length} samples)`);
       
-      // Nigerian time awareness
+      // Local time awareness
       const timeCtx = getNigerianTimeContext();
       
       let initialMsg = '';
