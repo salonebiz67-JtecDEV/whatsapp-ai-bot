@@ -32,8 +32,11 @@ async function callOpenAICompatible({ apiKey, baseUrl, model, messages, provider
 }
 
 function buildMessages(userMessage, history, ownerStyleSamples, systemPrompt, imagePart = null) {
+  // NEW: Transparent assistant - no longer impersonating, no bank info in prompt
+  // Style samples are used ONLY for casual tone reference, but filtered for romantic/financial content
   let safeStyle = [];
   if (ownerStyleSamples && ownerStyleSamples.length > 0) {
+    // Filter out any style samples that contain financial or romantic language to prevent learning bad patterns
     safeStyle = ownerStyleSamples.filter(s => {
       const lower = s.toLowerCase();
       return !containsFinancialLanguage(lower, true) && !containsRomanticLanguage(lower, true);
@@ -90,9 +93,12 @@ export function containsFinancialLanguage(text, isStyleCheck = false) {
   if (!text) return false;
   const lower = text.toLowerCase();
   
+  // Check keywords
   for (const kw of FINANCIAL_KEYWORDS) {
     if (kwMatch(lower, kw)) {
+      // For style check, be less aggressive - only block obvious ones
       if (isStyleCheck) {
+        // Only block if contains account number patterns or explicit money requests
         if (['account number', 'acct number', 'send money', 'transfer money', 'send account', 'drop account', 'send aza', 'drop aza', 'opay', 'bank account'].some(k => lower.includes(k))) {
           return true;
         }
@@ -103,6 +109,7 @@ export function containsFinancialLanguage(text, isStyleCheck = false) {
     }
   }
   
+  // Check regexes (always for AI output, not for style check unless obvious)
   if (!isStyleCheck) {
     for (const regex of FINANCIAL_REGEXES) {
       if (regex.test(text)) {
@@ -128,6 +135,7 @@ const ROMANTIC_KEYWORDS = [
   'babe i', 'baby i', 'sweetie', 'cutie', 'boo boo'
 ];
 
+// Romantic phrases that are intimate - check with word boundaries
 const ROMANTIC_REGEXES = [
   /\b(babe|baby|boo|honey|sweetheart|darling)\b.*\b(love|miss|kiss|hug|cuddle)\b/i,
   /\b(i|you).{0,5}\b(my|ur)\b.{0,5}\b(love|heart|everything|world)\b/i,
@@ -138,6 +146,7 @@ export function containsRomanticLanguage(text, isStyleCheck = false) {
   if (!text) return false;
   const lower = text.toLowerCase();
   
+  // Check emojis
   for (const emoji of ROMANTIC_EMOJIS) {
     if (text.includes(emoji)) {
       console.log(`🚫 Romantic emoji blocked: ${emoji} in "${text.slice(0,80)}"`);
@@ -145,16 +154,18 @@ export function containsRomanticLanguage(text, isStyleCheck = false) {
     }
   }
   
+  // Check keywords - for style check, be more permissive, only block explicit
   for (const kw of ROMANTIC_KEYWORDS) {
     if (kwMatch(lower, kw)) {
       if (isStyleCheck && !['i love you', 'my love', 'sexy', 'make love'].includes(kw)) {
-        continue;
+        continue; // Allow some mild terms in style learning, but filter in output
       }
       console.log(`🚫 Romantic keyword blocked: "${kw}" in "${text.slice(0,80)}"`);
       return true;
     }
   }
   
+  // Regex check for AI output
   if (!isStyleCheck) {
     for (const regex of ROMANTIC_REGEXES) {
       if (regex.test(text)) {
@@ -170,9 +181,11 @@ export function containsRomanticLanguage(text, isStyleCheck = false) {
 export function sanitizeRomanticLanguage(text) {
   if (!text) return text;
   let sanitized = text;
+  // Remove romantic emojis
   for (const emoji of ROMANTIC_EMOJIS) {
     sanitized = sanitized.split(emoji).join('');
   }
+  // Replace romantic phrases with neutral
   sanitized = sanitized.replace(/\b(my love|my baby|my babe|babe|baby|boo|honey|sweetheart)\b/gi, 'there');
   sanitized = sanitized.replace(/😍|🥰|💞|😘|💋|💖|💗|💓|💘|💝/g, '🙂');
   return sanitized.trim();
@@ -191,6 +204,7 @@ export function isIdentityQuestion(text) {
   if (!text) return false;
   const lower = text.toLowerCase().trim();
   
+  // Direct match
   for (const q of IDENTITY_QUESTIONS) {
     if (lower.includes(q)) {
       console.log(`🔍 Identity question detected: "${q}" in "${text.slice(0,80)}"`);
@@ -200,6 +214,7 @@ export function isIdentityQuestion(text) {
   
   const o = (config.ownerName || '').toLowerCase();
   if (o && (lower.includes(`are you ${o}`) || lower.includes(`is this ${o}`) || lower.includes(`real ${o}`) || lower.includes(`talking to ${o}`) || lower.includes(`is this really ${o}`))) return true;
+  // Pattern match: "is this really you" variations
   if (/\b(is|are|am).{0,10}\b(really|actually|truly).{0,10}\b(you|him|her)\b/i.test(lower)) return true;
   if (/\b(bot|ai|automated|robot)\b/i.test(lower) && /\b(you|this|are|is)\b/i.test(lower)) return true;
   
@@ -321,14 +336,16 @@ export async function generateReply(jid, userMessage, history = [], ownerStyleSa
     return getDisclosureResponse();
   }
   
-  // 2. Serious topics -> auto handoff
+  // 2. Serious/personal/emotional/important -> auto handoff, don't reply as bot (skip for internal agent prompts)
   if (!isInternalAgentPrompt && !skipPreChecks && isSeriousTopic(userMessage, history)) {
     console.log(`⚠️ SERIOUS TOPIC from ${jid}: "${userMessage.slice(0,80)}" - HANDOFF REQUIRED`);
     return `__HANDOFF__${getHandoffResponse()}`;
   }
   
-  // 3. Financial request from user -> handoff
+  // 3. Financial request from user -> handoff (don't handle money) - strict for real user messages, not internal prompts
   if (!isInternalAgentPrompt && !skipPreChecks) {
+    // Only check if user is actually REQUESTING financial action, not just mentioning keywords in instructions
+    // Use more specific check for user financial requests
     const lower = (userMessage || '').toLowerCase();
     const isFinancialRequest = /\b(send|transfer|drop).{0,15}(money|account|aza|cash|fund)/i.test(lower) || 
                                /\b(account number|bank account|opay|my account|your account).{0,10}(please|send|drop|what|give)/i.test(lower) ||
@@ -345,11 +362,12 @@ export async function generateReply(jid, userMessage, history = [], ownerStyleSa
   const timeContext = getNigerianTimeContext();
   console.log(`⏰ Nigerian time: ${timeContext.formatted}`);
   
+  // Disclosure frequency logic
   const shouldDisclose = options.shouldDisclose || false;
-  const isForcedDisclosure = options.isForcedDisclosure || false;
+  const isForcedDisclosure = options.isForcedDisclosure || false; // Identity question
   console.log(`📢 Disclosure check for ${jid}: shouldDisclose=${shouldDisclose}, forced=${isForcedDisclosure}, newContact=${!ownerStyleSamples || ownerStyleSamples.length === 0}`);
 
-  // ===== YOUR ASSISTANT'S IDENTITY + RULES (env vars: OWNER_NAME, ASSISTANT_NAME, PERSONA, GOALS, LANGUAGE_STYLE, CUSTOM_RULES) =====
+  // ===== YOUR ASSISTANT'S IDENTITY + RULES (edit via env vars: OWNER_NAME, ASSISTANT_NAME, PERSONA, GOALS, LANGUAGE_STYLE, CUSTOM_RULES) =====
   const OWNER = config.ownerName;
   const BOT = config.assistantName;
   const disclosureInstruction = shouldDisclose
@@ -426,4 +444,215 @@ Time: ${timeContext.formatted} - use "${timeContext.greeting}" if you greet.
     try {
       const m = initGemini(modelName, dynamicSystemPrompt);
       const _send = (p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('Gemini timeout 20s')), 20000))]);
-      let geminiHistory = history.slice(-config.maxHistory).filter(msg => msg.role !== 'system' && msg.content && msg.content.trim().length > 0).map(msg => ({ role: msg.role === 'user' ? 'user' : 'model', parts: [{ text: msg.con
+      let geminiHistory = history.slice(-config.maxHistory).filter(msg => msg.role !== 'system' && msg.content && msg.content.trim().length > 0).map(msg => ({ role: msg.role === 'user' ? 'user' : 'model', parts: [{ text: msg.content.slice(0, 1000) }] }));
+      while (geminiHistory.length > 0 && geminiHistory[0].role !== 'user') geminiHistory.shift();
+      const cleaned = [];
+      for (let i = 0; i < geminiHistory.length; i++) {
+        const curr = geminiHistory[i];
+        if (cleaned.length > 0 && cleaned[cleaned.length-1].role === curr.role) cleaned[cleaned.length-1].parts[0].text += '\n' + curr.parts[0].text;
+        else cleaned.push(curr);
+      }
+      geminiHistory = cleaned;
+      if (imagePartForGemini && mediaInfo?.type === 'image') {
+        console.log(`🧠 Asking ${modelName} with IMAGE for ${jid} (${isNewContact ? 'NEW' : 'KNOWN'})`);
+        const result = await _send(m.generateContent({ contents: [...geminiHistory.map(h => ({ role: h.role, parts: h.parts })), { role: 'user', parts: [{ text: userMessage }, imagePartForGemini] }], generationConfig: { maxOutputTokens: 1024, temperature: 0.6, topP: 0.9 } }));
+        const text = result.response.text();
+        if (!text) throw new Error('Empty');
+        generatedReply = text.trim();
+        break;
+      } else {
+        const chat = m.startChat({ history: geminiHistory, generationConfig: { maxOutputTokens: 1024, temperature: 0.6, topP: 0.9 } });
+        console.log(`🧠 Asking ${modelName} for ${jid} (${isNewContact ? 'NEW' : 'KNOWN'}, history: ${geminiHistory.length})`);
+        const result = await _send(chat.sendMessage(userMessage));
+        const text = result.response.text();
+        if (!text) throw new Error('Empty');
+        generatedReply = text.trim();
+        break;
+      }
+    } catch (e) {
+      lastError = e;
+      const msg = e.message || '';
+      console.error(`❌ ${modelName}:`, msg.slice(0,300));
+      if (msg.includes('API_KEY') || msg.toLowerCase().includes('api key is invalid')) break;
+      continue;
+    }
+  }
+
+  // Fallback chain if Gemini failed
+  if (!generatedReply) {
+    const fallbacks = [
+      { key: config.groqApiKey, base: 'https://api.groq.com/openai/v1', model: config.groqModel, name: 'Groq' },
+      { key: config.cerebrasApiKey, base: 'https://api.cerebras.ai/v1', model: config.cerebrasModel, name: 'Cerebras' },
+      { key: config.githubToken, base: 'https://models.github.ai/inference', model: config.githubModel, name: 'GitHub-Models' },
+      { key: config.openrouterApiKey, base: 'https://openrouter.ai/api/v1', model: config.openrouterModel, name: 'OpenRouter' },
+    ];
+    
+    for (const fb of fallbacks) {
+      if (!fb.key || generatedReply) continue;
+      try {
+        const r = await callOpenAICompatible({ 
+          apiKey: fb.key, 
+          baseUrl: fb.base, 
+          model: fb.model, 
+          messages: buildMessages(userMessage, history, ownerStyleSamples, dynamicSystemPrompt, imagePartForOpenAI), 
+          providerName: fb.name,
+          extraHeaders: fb.name === 'OpenRouter' ? { 'HTTP-Referer': 'https://github.com', 'X-Title': 'WhatsApp Assistant' } : {}
+        });
+        generatedReply = r;
+        break;
+      } catch (e) {
+        console.error(`❌ ${fb.name}:`, e.message.slice(0,250));
+        lastError = e;
+      }
+    }
+  }
+
+  if (!generatedReply) {
+    console.error('💥 All AI failed:', lastError?.message?.slice(0,300));
+    return `Hello! I'm ${config.assistantName}, ${config.ownerName}'s assistant. Give me a moment and I'll get back to you shortly 🙂`;
+  }
+
+  // ===== POST-GENERATION HARD FILTERS =====
+  
+  // 1. Check if generated reply contains financial language -> BLOCK
+  if (containsFinancialLanguage(generatedReply)) {
+    console.log(`🚫 BLOCKED AI reply with financial language from ${jid}: "${generatedReply.slice(0,100)}" -> Handoff`);
+    return `__HANDOFF__${getHandoffResponse()} __REASON__: AI generated financial language blocked`;
+  }
+  
+  // 2. Check if generated reply contains romantic/flirty language -> SANITIZE or BLOCK
+  if (containsRomanticLanguage(generatedReply)) {
+    console.log(`🚫 Romantic language detected in AI reply from ${jid}: "${generatedReply.slice(0,100)}" -> Sanitizing`);
+    const sanitized = sanitizeRomanticLanguage(generatedReply);
+    // If still contains romantic after sanitization, or is heavily romantic, block
+    if (containsRomanticLanguage(sanitized)) {
+      console.log(`🚫 Still romantic after sanitize, blocking -> safe fallback`);
+      return `Hello! How can I help you today? 🙂`;
+    }
+    generatedReply = sanitized;
+  }
+  
+  // 3. Check if reply itself is trying to claim to be the owner -> ensure transparency
+  const lowerReply = generatedReply.toLowerCase();
+  const ownerLower = (config.ownerName || '').toLowerCase();
+  if (ownerLower && (lowerReply.includes(`i am ${ownerLower}`) || lowerReply.includes(`i'm ${ownerLower}`)) && !lowerReply.includes('assistant')) {
+    console.log(`⚠️ AI claimed to be ${config.ownerName} -> rewriting as assistant`);
+    generatedReply = generatedReply.replace(new RegExp(`i(?:'| a)m ${ownerLower}`, 'ig'), `I'm ${config.assistantName}, ${config.ownerName}'s assistant`);
+  }
+  
+  // 4. Final safety: ensure reply is casual small talk, not too personal
+  if (generatedReply.length > 700) {
+    generatedReply = generatedReply.slice(0, 650) + '...';
+  }
+
+  console.log(`✅ Final filtered reply for ${jid}: "${generatedReply.slice(0,100)}..."`);
+  return generatedReply;
+}
+
+export function isHandoffRequest(text) {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  const o = (config.ownerName || '').toLowerCase();
+  const triggers = ['real person', 'talk to person', 'stop bot', 'pause bot', '#human', '#stop', '#pause', 'talk to human', 'human please', 'i want human', 'need human', 'person please', 'speak to a human', 'speak to human', 'need a human', 'want a human', 'talk to a human', 'a real person'];
+  if (o) triggers.push(`talk to ${o}`, `need ${o}`, `want ${o}`, `speak to ${o}`);
+  return triggers.some(t => lower.includes(t));
+}
+
+export function parseOwnerCommand(text) {
+  if (!text) return null;
+  const lower = text.toLowerCase().trim();
+  if (lower.startsWith('/pause ') || lower.startsWith('/stop ')) {
+    const target = text.split(' ')[1]?.replace(/[^0-9]/g, '');
+    return { action: 'pause', target };
+  }
+  if (lower.startsWith('/resume ')) {
+    const target = lower.split(' ')[1];
+    if (target === 'all') return { action: 'resumeAll' };
+    return { action: 'resume', target: target.replace(/[^0-9]/g, '') };
+  }
+  if (lower.startsWith('/clear ')) {
+    const target = lower.split(' ')[1];
+    if (target === 'all') return { action: 'clearAll' };
+    if (target === 'sessions' || target === 'session') return { action: 'clearSessions' };
+    return { action: 'clear', target: target.replace(/[^0-9]/g, '') };
+  }
+  if (lower === '/clear-sessions' || lower === '/clearsessions' || lower === '/fix-bad-mac') {
+    return { action: 'clearSessions' };
+  }
+  if (lower.startsWith('/style ')) {
+    const target = text.split(' ')[1]?.replace(/[^0-9]/g, '');
+    return { action: 'style', target };
+  }
+  if (lower.startsWith('/send ') || lower.startsWith('/sent ')) {
+    const rest = text.slice(text.toLowerCase().indexOf(' ', 1)).trim();
+    if (!rest) return { action: 'send', target: '', message: '' };
+    const tokens = rest.split(/\s+/);
+    let splitIdx = -1;
+    for (let i = 0; i < tokens.length; i++) {
+      if (/[a-zA-Z]{2,}/.test(tokens[i]) && !/^[0-9]+$/.test(tokens[i])) {
+        splitIdx = i;
+        break;
+      }
+    }
+    let target, message;
+    if (splitIdx > 0) {
+      target = tokens.slice(0, splitIdx).join(' ');
+      message = tokens.slice(splitIdx).join(' ');
+    } else {
+      target = tokens[0] || '';
+      message = tokens.slice(1).join(' ');
+    }
+    if (message.includes('|') || target.includes('|') || rest.includes('|')) {
+      return null;
+    }
+    return { action: 'send', target, message };
+  }
+  if (lower === '/status' || lower === '/stats') return { action: 'status' };
+  if (lower === '/help') return { action: 'help' };
+  if (lower === '/resume all') return { action: 'resumeAll' };
+  return null;
+}
+
+export function getOwnerHelpText() {
+  return `🤖 *${config.assistantName} - ${config.ownerName}'s WhatsApp Assistant*
+
+This assistant answers WhatsApp messages on your behalf, using the identity and goals you set in Render env vars.
+
+✅ *What it does:*
+• Greets people, light banter, "how are you"
+• Scheduling logistics: "when are you free"
+• Tells people you're busy and you'll reply directly for important stuff
+• Discloses it's assistant first time to new contact, after handoff, or after 2+ weeks gap - then chats naturally without repeating
+• Always re-discloses if asked "are you bot / really you"
+
+🚫 *Hard blocks (never sends):*
+• Any financial language: money, accounts, bank, Opay, transfer, etc.
+• Romantic/flirty tone or emojis 🥰😍💞😘💋
+• Personal/emotional/serious topics -> auto handoff to you
+
+⚠️ *Auto-handoff triggers:*
+• Emotional distress, health, family, relationship serious talk
+• Financial requests -> flags you
+• Important decisions, legal, etc.
+
+🔧 *Quiet-when-you're-active:*
+• Bot stays quiet if YOU replied in that chat within last 10m (OWNER_TAKEOVER_PAUSE_MINUTES)
+• Uses inactivity window - only replies if you haven't sent message in that chat recently
+• No double-replying or competing when you're handling conversation
+• Tracks global activity too - if you're active anywhere on WhatsApp, bot stays extra quiet
+
+🎛️ *Manual Controls (self-chat):*
+away / back - Toggle global away mode
+• "away" = Bot ACTIVE, handles casual while you're away
+• "back" = Bot QUIET, won't compete while you're online
+/pause 234... - Pause for contact
+/resume 234... - Resume
+/resume all - Resume all
+/clear 234... - Clear history
+/clear sessions - Fix Bad MAC
+/status - Status + disclosure stats
+/help - This help
+
+Disclosure: First time to new contact, after handoff, after 2 weeks gap, or when asked identity. Otherwise natural chat.
+`;
+}
