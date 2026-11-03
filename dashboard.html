@@ -90,6 +90,7 @@
     <div class="row" style="margin-top:10px"><button id="pairBtn" class="primary grow" onclick="getCode()">Get pairing code</button></div>
     <div id="codeBox" class="hidden">
       <div id="codeText" class="code">----</div>
+      <div class="row" style="margin-bottom:8px"><button class="grow" onclick="copyCode()">📋 Copy code</button></div>
       <div class="steps">
         On your phone: <b>WhatsApp → Settings → Linked devices → Link a device → Link with phone number instead</b>, then type this code. It expires in about <b id="codeTimer">2:00</b>.
       </div>
@@ -187,7 +188,7 @@ function renderStatus(s) {
   $('sErr').textContent = s.stats.errors; $('sUp').textContent = fmtUp(s.uptime);
   paused = s.paused; $('pauseBtn').textContent = paused ? '▶ Resume bot' : '⏸ Pause bot';
 
-  var showConnect = !s.connected && (s.status === 'not-linked' || !s.linked);
+  var showConnect = !s.connected && (s.status === 'not-linked' || !s.linked || !!s.pairing);
   $('connectCard').classList.toggle('hidden', !showConnect);
   if (!$('pairNumber').value && s.phoneNumber) $('pairNumber').value = s.phoneNumber;
   pairing = (!s.connected && s.pairing) ? s.pairing : null;
@@ -212,7 +213,7 @@ function renderPairing() {
   $('codeText').textContent = pairing.code;
   var update = function () {
     var left = Math.max(0, 120 - Math.floor((Date.now() - pairing.at) / 1000));
-    $('codeTimer').textContent = Math.floor(left / 60) + ':' + ('0' + (left % 60)).slice(-2);
+    $('codeTimer').textContent = left > 0 ? Math.floor(left / 60) + ':' + ('0' + (left % 60)).slice(-2) : 'expired: tap “Get pairing code” again';
   };
   update(); pairTick = setInterval(update, 1000);
 }
@@ -251,6 +252,12 @@ function start() {
   }).catch(function (e) { if (e.auth) showLogin(KEY ? 'Wrong admin key, or ADMIN_KEY is not set in Render.' : ''); else showLogin(e.message || 'Cannot reach the bot.'); });
 }
 
+function copyCode() {
+  var code = $('codeText').textContent.replace(/[^A-Za-z0-9]/g, '');
+  var done = function () { flash('pairMsg', 'Code copied: ' + code, true); };
+  if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(code).then(done).catch(function () { flash('pairMsg', 'Press and hold the code to copy it.', false); }); }
+  else { flash('pairMsg', 'Press and hold the code to copy it.', false); }
+}
 function getCode() {
   var n = $('pairNumber').value.replace(/[^0-9]/g, '');
   if (n.length < 7) { flash('pairMsg', 'Enter your number with country code, e.g. 23276123456', false); return; }

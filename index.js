@@ -86,8 +86,10 @@ function sendJson(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 function isLinked() {
+  // NOTE: requesting a pairing code already sets creds.me (with name '~'), so creds.me alone does NOT mean linked.
+  // creds.account only exists after WhatsApp confirms the pairing.
   const c = auth && auth.state && auth.state.creds;
-  return !!(c && (c.registered || c.me));
+  return !!(c && (c.registered || c.account || (c.me && c.me.name && c.me.name !== '~')));
 }
 
 async function handleApi(req, res, reqPath) {
