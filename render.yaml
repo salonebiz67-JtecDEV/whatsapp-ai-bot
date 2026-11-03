@@ -7,61 +7,71 @@ services:
     buildCommand: npm install
     startCommand: node index.js
     healthCheckPath: /health
-    autoDeploy: false
+    autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
-      - key: RENDER_EXTERNAL_URL
-        value: https://whatsapp-ai-bot-xvp1.onrender.com
+      # NOTE: do NOT set RENDER_EXTERNAL_URL here. Render injects your real URL automatically
+      # and the bot uses it to keep itself awake.
+
+      # ---- required ----
       - key: PHONE_NUMBER
         sync: false
       - key: GEMINI_API_KEY
-        sync: false
-      - key: GROQ_API_KEY
-        sync: false
-      - key: OPENROUTER_API_KEY
-        sync: false
-      - key: TOGETHER_API_KEY
-        sync: false
-      - key: HF_API_KEY
-        sync: false
-      - key: MISTRAL_API_KEY
-        sync: false
-      - key: COHERE_API_KEY
-        sync: false
-      - key: CEREBRAS_API_KEY
-        sync: false
-      - key: GITHUB_TOKEN
         sync: false
       - key: UPSTASH_REDIS_REST_URL
         sync: false
       - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
+      - key: ADMIN_KEY          # any long random string; protects /import /agent /stats /clear-sessions
+        sync: false
+
+      # ---- YOUR IDENTITY ----
+      - key: OWNER_NAME
+        sync: false
+      - key: ASSISTANT_NAME
+        sync: false
+      - key: PERSONA
+        sync: false
+      - key: GOALS
+        sync: false
+      - key: LANGUAGE_STYLE
+        sync: false
+      - key: CUSTOM_RULES
+        sync: false
+
+      # ---- optional extra AI keys (fallbacks) ----
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: CEREBRAS_API_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: TOGETHER_API_KEY
+        sync: false
+      - key: MISTRAL_API_KEY
+        sync: false
+      - key: COHERE_API_KEY
+        sync: false
+      - key: HF_API_KEY
+        sync: false
+
+      # ---- behaviour ----
       - key: GEMINI_MODEL
         value: gemini-3.6-flash
-      - key: GROQ_MODEL
-        value: llama-3.1-8b-instant
-      - key: OPENROUTER_MODEL
-        value: google/gemini-2.0-flash-exp:free
-      - key: BANK_INFO
-        sync: false
       - key: MAX_HISTORY
         value: 20
       - key: MAX_PER_HOUR
-        value: 30
+        value: 60
       - key: HANDOFF_MINUTES
-        value: 120
+        value: 30
+      - key: OWNER_TAKEOVER_PAUSE_MINUTES
+        value: 5
       - key: IGNORE_GROUPS
         value: true
-
-  # Keep-alive cron job - pings web service every 5 minutes to prevent sleep (free tier sleeps after 15 min idle)
-  - type: cron
-    name: keep-alive-ping
-    env: node
-    plan: free
-    branch: main
-    schedule: "*/5 * * * *"
-    buildCommand: ""
-    startCommand: "curl -s https://whatsapp-ai-bot-xvp1.onrender.com/health && echo \"Pinged at $(date)\" || wget -qO- https://whatsapp-ai-bot-xvp1.onrender.com/health"
+      - key: HUMAN_DELAYS      # true = slow, human-like typing delays (replies take 5-60s). false = fast.
+        value: false
+      - key: AUTO_CLEAR_SESSIONS
+        value: false
