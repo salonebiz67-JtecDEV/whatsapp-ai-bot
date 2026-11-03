@@ -39,6 +39,10 @@ services:
         sync: false
       - key: CUSTOM_RULES
         sync: false
+      - key: TIMEZONE          # e.g. Europe/London, America/New_York, Africa/Accra
+        sync: false
+      - key: LOCATION          # e.g. London, UK
+        sync: false
 
       # ---- optional extra AI keys (fallbacks) ----
       - key: GROQ_API_KEY
