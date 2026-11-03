@@ -3,6 +3,7 @@ dotenv.config();
 
 export const config = {
   phoneNumber: (process.env.PHONE_NUMBER || '').replace(/[^0-9]/g, ''),
+  // 7+ Free AI keys - add as many as you want, bot tries in order, never runs out
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   groqApiKey: process.env.GROQ_API_KEY || '',
   openrouterApiKey: process.env.OPENROUTER_API_KEY || '',
@@ -13,10 +14,10 @@ export const config = {
   hfApiKey: process.env.HF_API_KEY || process.env.HUGGINGFACE_API_KEY || '',
   mistralApiKey: process.env.MISTRAL_API_KEY || '',
   sambaNovaApiKey: process.env.SAMBANOVA_API_KEY || '',
-
+  
   upstashUrl: process.env.UPSTASH_REDIS_REST_URL || '',
   upstashToken: process.env.UPSTASH_REDIS_REST_TOKEN || '',
-
+  
   geminiModel: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
   groqModel: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
   openrouterModel: process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free',
@@ -25,19 +26,17 @@ export const config = {
   githubModel: process.env.GITHUB_MODEL || 'openai/gpt-4o-mini',
   cohereModel: process.env.COHERE_MODEL || 'command-r-plus',
   hfModel: process.env.HF_MODEL || 'meta-llama/Meta-Llama-3-8B-Instruct',
-
+  
   bankInfo: process.env.BANK_INFO || process.env.PAYMENT_INFO || '',
-
-  // ===== YOUR IDENTITY (set these in Render env vars) =====
-  ownerName: process.env.OWNER_NAME || 'Boss',
-  assistantName: process.env.ASSISTANT_NAME || 'Brim',
+  // ===== YOUR IDENTITY (edit these in Render env vars, no code changes needed) =====
+  ownerName: process.env.OWNER_NAME || 'Boss',                       // the real person (you)
+  assistantName: process.env.ASSISTANT_NAME || 'Brim',               // the AI's own name
   persona: process.env.PERSONA || 'Friendly, sharp, warm and helpful. Talks like a real young Nigerian: relaxed, short sentences, light humour, never stiff or robotic.',
   languageStyle: process.env.LANGUAGE_STYLE || 'Match the contact: English, Nigerian Pidgin, or a mix, whichever they use. Keep it natural.',
   goals: process.env.GOALS || '1) Reply to every message quickly. 2) Be useful: answer questions, take messages, set up calls/meetings. 3) Pass anything urgent or important to the owner.',
   customRules: process.env.CUSTOM_RULES || '',
-  adminKey: process.env.ADMIN_KEY || '',
-  fastReplies: (process.env.HUMAN_DELAYS || 'false').toLowerCase() !== 'true',
-
+  adminKey: process.env.ADMIN_KEY || '',   // protects /import /agent /stats /clear-sessions
+  fastReplies: (process.env.HUMAN_DELAYS || 'false').toLowerCase() !== 'true',  // set HUMAN_DELAYS=true for slow typing simulation
   maxHistory: parseInt(process.env.MAX_HISTORY || '20', 10),
   maxPerHour: parseInt(process.env.MAX_PER_HOUR || '60', 10),
   handoffMinutes: parseInt(process.env.HANDOFF_MINUTES || '30', 10),
@@ -69,6 +68,7 @@ export function validateConfig() {
     if (config.hfApiKey) keys.push('HF');
     if (config.mistralApiKey) keys.push('Mistral');
     console.log(`🔑 AI Chain (${keys.length}): ${keys.join(' → ')}`);
+    console.log(`💡 Free no-card new: Cerebras (14k/day), GitHub Models (GPT-4o free), Cohere (1000/month) - get keys at cerebras.ai, github.com/marketplace/models`);
   }
   return errors.length === 0;
 }
