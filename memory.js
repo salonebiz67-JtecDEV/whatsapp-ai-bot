@@ -413,6 +413,72 @@ class MemoryStore {
     }
   }
 
+  // ---------- CONTACT INDEX + CHAT LOG (powers the dashboard Chats tab) ----------
+  async touchContact(jid, patch) {
+    try {
+      let cur = null;
+      const file = path.join(this.localDir, 'contacts_index.json');
+      let all = {};
+      if (this.isRedis) {
+        const raw = await this.redis.hget('contacts:index', jid);
+        cur = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
+      } else {
+        all = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : {};
+        cur = all[jid] || null;
+      }
+      const next = {
+        jid,
+        name: patch.name || (cur && cur.name) || null,
+        last: patch.last != null ? patch.last : (cur && cur.last) || '',
+        role: patch.role || (cur && cur.role) || 'contact',
+        ts: patch.ts || Date.now(),
+        count: ((cur && cur.count) || 0) + 1
+      };
+      if (this.isRedis) await this.redis.hset('contacts:index', { [jid]: JSON.stringify(next) });
+      else { all[jid] = next; fs.writeFileSync(file, JSON.stringify(all)); }
+    } catch (e) { console.warn('touchContact error:', e.message); }
+  }
+
+  async listContacts() {
+    try {
+      let obj = {};
+      if (this.isRedis) obj = (await this.redis.hgetall('contacts:index')) || {};
+      else {
+        const file = path.join(this.localDir, 'contacts_index.json');
+        obj = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : {};
+      }
+      return Object.values(obj).map(v => (typeof v === 'string' ? JSON.parse(v) : v)).filter(Boolean).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    } catch (e) { console.warn('listContacts error:', e.message); return []; }
+  }
+
+  async addChatLog(jid, entry) {
+    const key = `chatlog:${jid}`;
+    try {
+      if (this.isRedis) {
+        await this.redis.rpush(key, JSON.stringify(entry));
+        await this.redis.ltrim(key, -100, -1);
+        await this.redis.expire(key, 60 * 60 * 24 * 30);
+      } else {
+        const file = path.join(this.localDir, `chatlog_${this._sanitize(jid)}.json`);
+        const arr = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : [];
+        arr.push(entry);
+        fs.writeFileSync(file, JSON.stringify(arr.slice(-100)));
+      }
+    } catch (e) { console.warn('addChatLog error:', e.message); }
+  }
+
+  async getChatLog(jid) {
+    const key = `chatlog:${jid}`;
+    try {
+      if (this.isRedis) {
+        const items = await this.redis.lrange(key, 0, -1);
+        return (items || []).map(i => (typeof i === 'string' ? JSON.parse(i) : i)).filter(Boolean);
+      }
+      const file = path.join(this.localDir, `chatlog_${this._sanitize(jid)}.json`);
+      return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : [];
+    } catch (e) { console.warn('getChatLog error:', e.message); return []; }
+  }
+
   // ---------- DAILY ACTIVITY LOG (used by the nightly summary) ----------
   async addActivity(dateKey, entry) {
     const key = `activity:${dateKey}`;

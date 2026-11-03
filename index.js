@@ -8,6 +8,7 @@ import { getMemoryStore } from './memory.js';
 import { generateReply, isHandoffRequest, parseOwnerCommand, getOwnerHelpText, getNigerianTimeContext } from './ai.js';
 import { extractOwnerStyleFromExport } from './import.js';
 import fs from 'fs';
+import { trackChat } from './chats.js';
 import { recordExchange, startSummaryScheduler, sendSummary, buildSummary, summaryInfo } from './summary.js';
 import { getAgentManager, parseAgentCommand, parseNaturalAgentIntent, extractNumbersFromVcard, extractNumbersRobust } from './agent.js';
 
@@ -43,6 +44,7 @@ global.stats = { received: 0, replied: 0, errors: 0, startedAt: Date.now() };
 global.botPaused = false;
 global.pairing = null;
 global.manualConnect = false;
+global.contactNames = new Map(); // jid -> saved WhatsApp contact name
 const LOG_MAX = 400;
 const logBuffer = [];
 let logSeq = 0;
@@ -93,6 +95,14 @@ function isLinked() {
   return !!(c && (c.registered || c.account || (c.me && c.me.name && c.me.name !== '~')));
 }
 
+async function chatState(mem, jid) {
+  if (global.botPaused) return 'paused';
+  try {
+    const [handoff, ownerActive] = await Promise.all([mem.isHandoff(jid), mem.isOwnerRecentlyActive(jid, config.ownerTakeoverPauseMinutes || 5)]);
+    return (handoff || ownerActive) ? 'human' : 'bot';
+  } catch { return 'bot'; }
+}
+
 async function handleApi(req, res, reqPath) {
   try {
     if (reqPath === '/api/status') {
@@ -120,6 +130,32 @@ async function handleApi(req, res, reqPath) {
         }
       });
     }
+    if (reqPath === '/api/chats') {
+      const mem = await getMemoryStore();
+      const list = (await mem.listContacts()).slice(0, 60);
+      const chats = await Promise.all(list.map(async c => ({
+        jid: c.jid,
+        number: c.jid.endsWith('@s.whatsapp.net') ? c.jid.split('@')[0] : '',
+        name: (global.contactNames.get(c.jid)) || c.name || (c.jid.endsWith('@s.whatsapp.net') ? '+' + c.jid.split('@')[0] : 'Unknown contact'),
+        last: c.last, role: c.role, ts: c.ts, count: c.count,
+        state: await chatState(mem, c.jid)
+      })));
+      return sendJson(res, 200, { chats });
+    }
+    if (reqPath === '/api/chat') {
+      const jid = new URL(req.url, 'http://localhost').searchParams.get('jid') || '';
+      if (!/^[0-9a-zA-Z@._-]{3,80}$/.test(jid)) return sendJson(res, 400, { error: 'Bad chat id' });
+      const mem = await getMemoryStore();
+      const contacts = await mem.listContacts();
+      const c = contacts.find(x => x.jid === jid) || { jid };
+      return sendJson(res, 200, {
+        jid,
+        number: jid.endsWith('@s.whatsapp.net') ? jid.split('@')[0] : '',
+        name: (global.contactNames.get(jid)) || c.name || (jid.endsWith('@s.whatsapp.net') ? '+' + jid.split('@')[0] : 'Unknown contact'),
+        state: await chatState(mem, jid),
+        messages: await mem.getChatLog(jid)
+      });
+    }
     if (reqPath === '/api/logs') {
       const since = parseInt(new URL(req.url, 'http://localhost').searchParams.get('since') || '0', 10);
       return sendJson(res, 200, { logs: logBuffer.filter(l => l.id > since) });
@@ -127,6 +163,14 @@ async function handleApi(req, res, reqPath) {
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'Use POST' });
     const body = await readBody(req);
 
+    if (reqPath === '/api/chat/pause') {
+      const jid = String(body.jid || '');
+      if (!/^[0-9a-zA-Z@._-]{3,80}$/.test(jid)) return sendJson(res, 400, { error: 'Bad chat id' });
+      const mem = await getMemoryStore();
+      if (body.paused) { await mem.setHandoff(jid, 60 * 24 * 7); console.log(`⏸ Bot paused for ${jid.split('@')[0]} from dashboard (7 days)`); }
+      else { await mem.clearHandoff(jid); await mem.clearOwnerActive(jid); console.log(`▶️ Bot resumed for ${jid.split('@')[0]} from dashboard`); }
+      return sendJson(res, 200, { ok: true, state: await chatState(mem, jid) });
+    }
     if (reqPath === '/api/pause') {
       global.botPaused = !!body.paused;
       console.log(global.botPaused ? '⏸ Bot PAUSED from dashboard' : '▶️ Bot RESUMED from dashboard');
@@ -451,6 +495,15 @@ async function startBot() {
     });
     global.sockRef = sock;
     agentManager.sock = sock;
+    const rememberNames = (list) => {
+      for (const c of list || []) {
+        const n = c.name || c.notify || c.verifiedName;
+        if (c.id && n) global.contactNames.set(c.id, n);
+      }
+    };
+    sock.ev.on('contacts.upsert', rememberNames);
+    sock.ev.on('contacts.update', rememberNames);
+    sock.ev.on('messaging-history.set', (h) => rememberNames(h && h.contacts));
 
     if (process.env.AUTO_PAIR === 'true' && !isLinked() && config.phoneNumber && !pairingCodeRequested) {
       setTimeout(async () => {
@@ -568,6 +621,12 @@ async function handleMessage(msg) {
   let { text: messageContent, mediaInfo } = await extractContent(msg);
   const ownerJid = `${config.phoneNumber}@s.whatsapp.net`;
   const isSelfChat = jid === ownerJid || jid === `${config.phoneNumber}@s.whatsapp.net`;
+
+  // Dashboard Chats tab: log what the contact wrote, or what you wrote yourself from your phone
+  if (!isSelfChat && !jid.endsWith('@g.us')) {
+    const preview = messageContent || (mediaInfo ? `[${mediaInfo.type}]` : '');
+    if (preview) trackChat(jid, { name: isFromMe ? null : msg.pushName, role: isFromMe ? 'owner' : 'contact', text: preview, ts: Number(msg.messageTimestamp || 0) * 1000 });
+  }
 
   // Document import
   if (isFromMe && m?.documentMessage) {
@@ -833,6 +892,7 @@ async function handleMessage(msg) {
     await delayRandom();
     await sock.sendMessage(jid, { text: `No worries, I'll get back to you shortly 🙏\n\n_Bot paused for ${config.handoffMinutes} mins_` });
     await memory.addMessage(jid, 'assistant', 'Handoff');
+    trackChat(jid, { role: 'bot', text: "No worries, I'll get back to you shortly 🙏" });
     return;
   }
 
@@ -990,6 +1050,7 @@ async function handleMessage(msg) {
       console.log(`📤 Handoff message sent to ${contactName}: ${handoffMsg.slice(0,100)}...`);
       await memory.addMessage(jid, 'assistant', handoffMsg);
       recordExchange({ jid, name: contactName, incoming: messageContent, reply: cleanHandoffMsg, handoff: true, reason });
+      trackChat(jid, { role: 'bot', text: cleanHandoffMsg });
       
       // Notify owner via self-chat
       try {
@@ -1010,6 +1071,7 @@ async function handleMessage(msg) {
     console.log(`🤖 Assistant replied to ${contactName}: ${aiReply.slice(0,100)}...`);
     await memory.addMessage(jid, 'assistant', aiReply);
     recordExchange({ jid, name: contactName, incoming: messageContent, reply: aiReply });
+    trackChat(jid, { role: 'bot', text: aiReply });
     
     // Track disclosure if this reply included disclosure
     if (shouldDisclose) {

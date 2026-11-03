@@ -3,152 +3,317 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Johnny Tech Dashboard</title>
+<meta name="theme-color" content="#0b1220">
+<title>Johnny Tech</title>
 <style>
-  :root { --bg:#0d1117; --card:#161b22; --line:#262d36; --text:#e6edf3; --muted:#8b949e; --green:#25d366; --red:#f85149; --yellow:#e3b341; --blue:#58a6ff; }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; padding:14px; padding-bottom:40px; max-width:720px; margin:auto; }
-  h1 { font-size:20px; margin:4px 0 2px; }
-  .sub { color:var(--muted); font-size:13px; margin-bottom:14px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
-  .card h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 10px; }
-  .row { display:flex; gap:8px; flex-wrap:wrap; }
-  .grow { flex:1; min-width:120px; }
-  .pill { display:inline-flex; align-items:center; gap:7px; padding:6px 12px; border-radius:999px; font-weight:600; font-size:14px; background:#222a33; }
-  .dot { width:10px; height:10px; border-radius:50%; background:var(--muted); }
-  .ok .dot { background:var(--green); box-shadow:0 0 8px var(--green); }
-  .warn .dot { background:var(--yellow); }
-  .bad .dot { background:var(--red); }
-  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:12px; }
-  .stat { background:#0f141a; border:1px solid var(--line); border-radius:10px; padding:10px 6px; text-align:center; }
-  .stat b { display:block; font-size:20px; }
-  .stat span { font-size:11px; color:var(--muted); }
-  button { background:#21262d; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:11px 14px; font-size:14px; font-weight:600; cursor:pointer; }
-  button.primary { background:var(--green); color:#04210f; border-color:var(--green); }
-  button.danger { background:#3a1518; border-color:#5b1f24; color:#ff8b85; }
-  button:disabled { opacity:.5; }
-  input, textarea { width:100%; background:#0f141a; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:11px; font-size:15px; font-family:inherit; }
-  label { font-size:12px; color:var(--muted); display:block; margin:8px 0 4px; }
-  .code { font-size:34px; letter-spacing:.12em; font-weight:800; text-align:center; background:#0f141a; border:2px dashed var(--green); border-radius:12px; padding:16px 8px; margin:12px 0 8px; color:var(--green); user-select:all; }
-  .steps { color:var(--muted); font-size:13px; line-height:1.55; }
-  .steps b { color:var(--text); }
-  #logs { background:#0a0e13; border:1px solid var(--line); border-radius:10px; height:300px; overflow:auto; padding:8px; font:12px/1.45 ui-monospace,Menlo,Consolas,monospace; }
-  .ln { white-space:pre-wrap; word-break:break-word; padding:2px 0; border-bottom:1px solid #141a21; }
-  .ln .t { color:#566170; margin-right:6px; }
-  .ln.error { color:#ff8b85; }
-  .ln.warn { color:var(--yellow); }
-  .tabs { display:flex; gap:6px; margin-bottom:8px; }
-  .tabs button { padding:7px 12px; font-size:13px; }
-  .tabs button.on { background:#2d333b; border-color:#444c56; }
-  .reply { margin-top:10px; padding:10px; background:#0f141a; border-left:3px solid var(--green); border-radius:6px; white-space:pre-wrap; font-size:14px; }
-  .kv { display:grid; grid-template-columns:120px 1fr; gap:6px 10px; font-size:13px; }
-  .kv div:nth-child(odd) { color:var(--muted); }
+  :root {
+    --bg:#0b1220; --bg2:#0f1a2e; --card:#141f33; --card2:#1a2740; --line:#22304a; --text:#e8eef9; --muted:#8a98b3;
+    --accent:#19d3b0; --accent2:#0fb59a; --accentText:#04201b; --green:#22c55e; --greenBg:#123a2b; --amber:#f5a524; --amberBg:#3b2a0e;
+    --red:#ff6b6b; --redBg:#3a1519; --blue:#5aa9ff; --bubbleIn:#1a2740; --bubbleBot:#0f3d38; --bubbleOwner:#1f3a63; --shadow:0 6px 24px rgba(0,0,0,.35);
+  }
+  :root.light {
+    --bg:#f3f6fb; --bg2:#ffffff; --card:#ffffff; --card2:#f0f4fa; --line:#dde5f0; --text:#14213a; --muted:#66748f;
+    --accent:#0fb59a; --accent2:#0a9a83; --accentText:#ffffff; --greenBg:#dcf7e8; --amberBg:#fdf0d6; --redBg:#fde4e4;
+    --bubbleIn:#ffffff; --bubbleBot:#d8f5ef; --bubbleOwner:#dbe9ff; --shadow:0 6px 20px rgba(20,33,58,.10);
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; overflow:hidden; }
   .hidden { display:none !important; }
-  .msg { font-size:13px; margin-top:8px; }
-  .msg.err { color:#ff8b85; } .msg.good { color:var(--green); }
-  a { color:var(--blue); }
+
+  /* ---------- header ---------- */
+  .top { position:fixed; top:0; left:0; right:0; height:calc(60px + env(safe-area-inset-top)); padding:env(safe-area-inset-top) 14px 0; background:var(--bg2); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px; z-index:20; }
+  .logo { width:38px; height:38px; border-radius:11px; background:linear-gradient(135deg,#1ee3c0,#0fa88f); display:flex; align-items:center; justify-content:center; flex:none; }
+  .logo svg { width:22px; height:22px; stroke:#04201b; fill:none; stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; }
+  .ttl { font-weight:700; font-size:17px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pill { display:inline-flex; align-items:center; gap:7px; padding:7px 13px; border-radius:999px; font-weight:600; font-size:13px; background:var(--card2); border:1px solid var(--line); white-space:nowrap; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--muted); flex:none; }
+  .pill.ok .dot { background:var(--green); box-shadow:0 0 8px var(--green); }
+  .pill.warn .dot { background:var(--amber); }
+  .pill.bad .dot { background:var(--red); }
+  .iconbtn { width:40px; height:40px; border-radius:50%; background:var(--card2); border:1px solid var(--line); color:var(--text); display:flex; align-items:center; justify-content:center; cursor:pointer; flex:none; padding:0; }
+  .iconbtn svg { width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* ---------- views ---------- */
+  main { position:fixed; top:calc(60px + env(safe-area-inset-top)); bottom:calc(72px + env(safe-area-inset-bottom)); left:0; right:0; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  .view { display:none; padding:16px 14px 30px; max-width:720px; margin:0 auto; }
+  .view.on { display:block; }
+  h2.h { font-size:22px; margin:6px 2px 14px; }
+  h3.sec { font-size:12px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin:18px 4px 8px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:15px; margin-bottom:12px; box-shadow:var(--shadow); }
+  .muted { color:var(--muted); }
+  .small { font-size:13px; line-height:1.5; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .grow { flex:1; min-width:120px; }
+  .between { justify-content:space-between; }
+
+  button.btn { background:var(--card2); color:var(--text); border:1px solid var(--line); border-radius:12px; padding:12px 14px; font-size:14px; font-weight:600; cursor:pointer; font-family:inherit; }
+  button.btn.primary { background:linear-gradient(135deg,#1ee3c0,#12b79d); color:#04201b; border-color:transparent; }
+  button.btn.danger { background:var(--redBg); color:var(--red); border-color:transparent; }
+  button.btn:disabled { opacity:.5; }
+  input, textarea { width:100%; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:12px; padding:12px; font-size:15px; font-family:inherit; }
+  label { display:block; font-size:12px; color:var(--muted); margin:10px 0 5px; }
+  .msg { font-size:13px; margin-top:8px; min-height:1px; }
+  .msg.err { color:var(--red); } .msg.good { color:var(--accent); }
+
+  /* ---------- stats ---------- */
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 4px; text-align:center; }
+  .stat b { display:block; font-size:21px; }
+  .stat span { font-size:11px; color:var(--muted); }
+  .hero { display:flex; gap:14px; align-items:center; }
+  .heroicon { width:54px; height:54px; border-radius:16px; background:var(--card2); display:flex; align-items:center; justify-content:center; flex:none; }
+  .heroicon svg { width:28px; height:28px; stroke:var(--accent); fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .hero b { font-size:17px; display:block; }
+
+  /* ---------- chats list ---------- */
+  .chat { display:flex; gap:12px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:18px; padding:14px; margin-bottom:10px; cursor:pointer; box-shadow:var(--shadow); }
+  .chat:active { background:var(--card2); }
+  .av { width:50px; height:50px; border-radius:50%; background:var(--bg); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-weight:800; color:var(--accent); font-size:17px; flex:none; }
+  .cbody { flex:1; min-width:0; }
+  .crow { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+  .cname { font-weight:700; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ctime { font-size:12px; color:var(--muted); flex:none; }
+  .cprev { color:var(--muted); font-size:14px; margin:3px 0 7px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .badge { display:inline-block; font-size:11px; font-weight:800; letter-spacing:.05em; padding:4px 9px; border-radius:7px; }
+  .badge.bot { background:var(--greenBg); color:var(--green); }
+  .badge.human { background:var(--amberBg); color:var(--amber); }
+  .badge.paused { background:var(--card2); color:var(--muted); }
+  .empty { text-align:center; color:var(--muted); padding:40px 16px; font-size:14px; line-height:1.6; }
+
+  /* ---------- chat detail ---------- */
+  .detail { position:fixed; inset:0; background:var(--bg); z-index:40; display:flex; flex-direction:column; }
+  .dhead { display:flex; align-items:center; gap:10px; padding:calc(10px + env(safe-area-inset-top)) 12px 10px; background:var(--bg2); border-bottom:1px solid var(--line); }
+  .dhead .av { width:42px; height:42px; font-size:15px; }
+  .dtitle { flex:1; min-width:0; }
+  .dtitle b { display:block; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dtitle span { font-size:12px; color:var(--muted); }
+  #msgs { flex:1; overflow-y:auto; padding:14px 12px; display:flex; flex-direction:column; gap:8px; }
+  .bub { max-width:82%; padding:9px 12px; border-radius:16px; font-size:15px; line-height:1.4; white-space:pre-wrap; word-break:break-word; }
+  .bub .who { display:block; font-size:10px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; opacity:.7; margin-bottom:2px; }
+  .bub .tm { display:block; font-size:11px; opacity:.55; margin-top:3px; text-align:right; }
+  .bub.contact { align-self:flex-start; background:var(--bubbleIn); border:1px solid var(--line); border-bottom-left-radius:5px; }
+  .bub.bot { align-self:flex-end; background:var(--bubbleBot); border-bottom-right-radius:5px; }
+  .bub.owner { align-self:flex-end; background:var(--bubbleOwner); border-bottom-right-radius:5px; }
+  .dfoot { padding:10px 12px calc(12px + env(safe-area-inset-bottom)); background:var(--bg2); border-top:1px solid var(--line); }
+
+  /* ---------- bottom nav ---------- */
+  nav.bottom { position:fixed; left:0; right:0; bottom:0; height:calc(72px + env(safe-area-inset-bottom)); padding-bottom:env(safe-area-inset-bottom); background:var(--bg2); border-top:1px solid var(--line); display:grid; grid-template-columns:1fr 1fr 1.1fr 1fr 1fr; align-items:end; z-index:30; }
+  .nv { background:none; border:none; color:var(--muted); font-size:12px; font-weight:600; display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 0 12px; cursor:pointer; font-family:inherit; }
+  .nv svg { width:26px; height:26px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .nv.on { color:var(--accent); }
+  .nv.fab { position:relative; }
+  .fabbtn { position:absolute; top:-26px; width:62px; height:62px; border-radius:50%; background:linear-gradient(135deg,#1ee3c0,#0fa88f); display:flex; align-items:center; justify-content:center; box-shadow:0 8px 24px rgba(25,211,176,.45); border:4px solid var(--bg2); }
+  .fabbtn svg { stroke:#04201b; width:28px; height:28px; }
+  .nv.fab span.lbl { margin-top:36px; }
+  .nv.fab.on { color:var(--accent); }
+
+  /* ---------- link / code ---------- */
+  .code { font-size:34px; letter-spacing:.12em; font-weight:800; text-align:center; background:var(--bg); border:2px dashed var(--accent); border-radius:14px; padding:16px 8px; margin:12px 0 10px; color:var(--accent); user-select:all; -webkit-user-select:all; }
+  ol.steps { margin:8px 0 0; padding-left:20px; color:var(--muted); font-size:14px; line-height:1.7; }
+  ol.steps b { color:var(--text); }
+
+  /* ---------- logs ---------- */
+  #logs { background:var(--bg); border:1px solid var(--line); border-radius:12px; height:280px; overflow:auto; padding:8px; font:12px/1.45 ui-monospace,Menlo,Consolas,monospace; }
+  .ln { white-space:pre-wrap; word-break:break-word; padding:2px 0; border-bottom:1px solid var(--line); }
+  .ln .t { color:var(--muted); margin-right:6px; }
+  .ln.error { color:var(--red); } .ln.warn { color:var(--amber); }
+  .tabs { display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap; }
+  .tabs button { padding:8px 12px; font-size:13px; }
+  .tabs button.on { border-color:var(--accent); color:var(--accent); }
+  .reply { margin-top:10px; padding:11px; background:var(--bg); border-left:3px solid var(--accent); border-radius:8px; white-space:pre-wrap; font-size:14px; line-height:1.45; }
+
+  .kv { display:grid; grid-template-columns:120px 1fr; gap:9px 10px; font-size:14px; }
+  .kv div:nth-child(odd) { color:var(--muted); }
+  .toggle { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+
+  /* ---------- login ---------- */
+  #login { position:fixed; inset:0; background:var(--bg); z-index:60; display:flex; align-items:center; justify-content:center; padding:20px; }
+  #login .card { width:100%; max-width:380px; }
 </style>
 </head>
 <body>
 
-<h1>🤖 Johnny Tech</h1>
-<div class="sub">WhatsApp assistant control panel</div>
-
 <!-- LOGIN -->
-<div id="login" class="card hidden">
-  <h2>Admin key</h2>
-  <div class="steps" style="margin-bottom:8px">Enter the <b>ADMIN_KEY</b> you set in Render (Environment).</div>
-  <input id="keyInput" type="password" placeholder="ADMIN_KEY" autocomplete="off">
-  <div class="row" style="margin-top:10px"><button class="primary grow" onclick="saveKey()">Open dashboard</button></div>
-  <div id="loginMsg" class="msg err"></div>
+<div id="login" class="hidden">
+  <div class="card">
+    <div class="row" style="margin-bottom:10px"><div class="logo"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></div><b style="font-size:18px">Johnny Tech</b></div>
+    <div class="small muted">Enter the <b>ADMIN_KEY</b> you set in Render (Environment).</div>
+    <label>Admin key</label>
+    <input id="keyInput" type="password" placeholder="ADMIN_KEY" autocomplete="off">
+    <div class="row" style="margin-top:12px"><button class="btn primary grow" onclick="saveKey()">Open dashboard</button></div>
+    <div id="loginMsg" class="msg err"></div>
+  </div>
 </div>
 
 <div id="app" class="hidden">
 
-  <!-- STATUS -->
-  <div class="card">
-    <h2>Status</h2>
-    <div class="row" style="align-items:center;justify-content:space-between">
-      <div id="statusPill" class="pill"><span class="dot"></span><span id="statusText">Loading…</span></div>
-      <button id="pauseBtn" onclick="togglePause()">Pause bot</button>
-    </div>
-    <div id="statusNote" class="steps" style="margin-top:10px"></div>
-    <div class="stats">
-      <div class="stat"><b id="sRecv">0</b><span>received</span></div>
-      <div class="stat"><b id="sRepl">0</b><span>replied</span></div>
-      <div class="stat"><b id="sErr">0</b><span>errors</span></div>
-      <div class="stat"><b id="sUp">0</b><span>uptime</span></div>
-    </div>
-  </div>
+  <header class="top">
+    <div class="logo"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></div>
+    <div class="ttl" id="appTitle">Johnny Tech</div>
+    <div id="statusPill" class="pill"><span class="dot"></span><span id="statusText">…</span></div>
+    <button class="iconbtn" onclick="toggleTheme()" aria-label="Toggle theme"><svg id="themeIcon" viewBox="0 0 24 24"></svg></button>
+  </header>
 
-  <!-- CONNECT -->
-  <div id="connectCard" class="card hidden">
-    <h2>Connect WhatsApp</h2>
-    <div class="steps">No code is sent until you tap the button below.</div>
-    <label>Your WhatsApp number (with country code, no +)</label>
-    <input id="pairNumber" inputmode="numeric" placeholder="23276123456">
-    <div class="row" style="margin-top:10px"><button id="pairBtn" class="primary grow" onclick="getCode()">Get pairing code</button></div>
-    <div id="codeBox" class="hidden">
-      <div id="codeText" class="code">----</div>
-      <div class="row" style="margin-bottom:8px"><button class="grow" onclick="copyCode()">📋 Copy code</button></div>
-      <div class="steps">
-        On your phone: <b>WhatsApp → Settings → Linked devices → Link a device → Link with phone number instead</b>, then type this code. It expires in about <b id="codeTimer">2:00</b>.
+  <main id="main">
+
+    <!-- HOME -->
+    <section id="v-home" class="view on">
+      <div class="card">
+        <div class="hero">
+          <div class="heroicon"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3.2-6.9"/><path d="M21 4v5h-5"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <div>
+            <b id="heroTitle">Loading…</b>
+            <div id="heroSub" class="small muted"></div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button id="pauseBtn" class="btn grow" onclick="togglePause()">⏸ Pause bot</button>
+          <button class="btn grow" onclick="act('/api/restart','Restarting connection…')">🔄 Restart</button>
+        </div>
+        <div id="homeMsg" class="msg"></div>
       </div>
+      <div class="stats">
+        <div class="stat"><b id="sRecv">0</b><span>received</span></div>
+        <div class="stat"><b id="sRepl">0</b><span>replied</span></div>
+        <div class="stat"><b id="sErr">0</b><span>errors</span></div>
+        <div class="stat"><b id="sUp">0</b><span>uptime</span></div>
+      </div>
+      <h3 class="sec">Recent conversations</h3>
+      <div id="homeChats"></div>
+      <div class="row" style="margin-top:4px"><button class="btn grow" onclick="show('chats')">See all chats</button></div>
+    </section>
+
+    <!-- CHATS -->
+    <section id="v-chats" class="view">
+      <h2 class="h">Active conversations</h2>
+      <input id="chatSearch" placeholder="Search name, number or message…" oninput="renderChats()" style="margin-bottom:12px">
+      <div id="chatList"></div>
+    </section>
+
+    <!-- LINK -->
+    <section id="v-link" class="view">
+      <h2 class="h">Link WhatsApp</h2>
+      <div class="card">
+        <div class="hero">
+          <div class="heroicon"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></div>
+          <div><b id="linkTitle">…</b><div id="linkSub" class="small muted"></div></div>
+        </div>
+        <div id="linkDone" class="row hidden" style="margin-top:14px">
+          <button class="btn grow" onclick="act('/api/restart','Restarting connection…','linkMsg')">🔄 Restart connection</button>
+          <button class="btn danger grow" onclick="logoutWA()">⏏ Log out</button>
+        </div>
+        <div id="linkForm" class="hidden">
+          <label>Your WhatsApp number (country code, no +)</label>
+          <input id="pairNumber" inputmode="numeric" placeholder="23276123456">
+          <div class="row" style="margin-top:12px"><button id="pairBtn" class="btn primary grow" onclick="getCode()">Get pairing code</button></div>
+        </div>
+        <div id="codeBox" class="hidden">
+          <div id="codeText" class="code">----</div>
+          <div class="row"><button class="btn grow" onclick="copyCode()">📋 Copy code</button></div>
+          <div class="small muted" style="margin-top:10px">Enter it on your phone within <b id="codeTimer">2:00</b>.</div>
+        </div>
+        <div id="linkMsg" class="msg"></div>
+      </div>
+      <h3 class="sec">How to link</h3>
+      <div class="card">
+        <ol class="steps">
+          <li>Type your number above and tap <b>Get pairing code</b>.</li>
+          <li>On your phone open <b>WhatsApp → Settings → Linked devices</b>.</li>
+          <li>Tap <b>Link a device</b>, then <b>Link with phone number instead</b>.</li>
+          <li>Type the code. This page turns green when it connects.</li>
+        </ol>
+        <div class="small muted" style="margin-top:10px">No code is ever sent unless you tap the button here.</div>
+      </div>
+    </section>
+
+    <!-- DASHBOARD -->
+    <section id="v-dash" class="view">
+      <h2 class="h">Dashboard</h2>
+      <div class="stats">
+        <div class="stat"><b id="dRecv">0</b><span>received</span></div>
+        <div class="stat"><b id="dRepl">0</b><span>replied</span></div>
+        <div class="stat"><b id="dErr">0</b><span>errors</span></div>
+        <div class="stat"><b id="dChats">0</b><span>chats</span></div>
+      </div>
+
+      <h3 class="sec">Daily summary</h3>
+      <div class="card">
+        <div id="sumInfo" class="small muted">Loading…</div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn grow" onclick="sumPreview()">👁 Preview today</button>
+          <button class="btn primary grow" onclick="sumSend()">📤 Send now</button>
+        </div>
+        <div id="sumText" class="reply hidden"></div>
+        <div id="sumMsg" class="msg"></div>
+      </div>
+
+      <h3 class="sec">Test the AI (nothing is sent on WhatsApp)</h3>
+      <div class="card">
+        <textarea id="testMsg" rows="2" placeholder="Type a message like a contact would, e.g. “hey how far”"></textarea>
+        <div class="row" style="margin-top:10px"><button id="testBtn" class="btn primary grow" onclick="testAI()">Send test</button></div>
+        <div id="testReply" class="reply hidden"></div>
+      </div>
+
+      <h3 class="sec">Tools</h3>
+      <div class="card">
+        <div class="row">
+          <button class="btn grow" onclick="fixMac()">🧹 Fix “Bad MAC”</button>
+          <button class="btn grow" onclick="openPage('/import')">📥 Import / agent</button>
+        </div>
+        <div id="toolMsg" class="msg"></div>
+      </div>
+
+      <h3 class="sec">Live logs</h3>
+      <div class="card">
+        <div class="tabs">
+          <button id="tabAll" class="btn on" onclick="setFilter('all')">All</button>
+          <button id="tabErr" class="btn" onclick="setFilter('error')">Errors</button>
+          <button class="btn" onclick="copyLogs()">Copy</button>
+          <button class="btn" onclick="clearView()">Clear</button>
+        </div>
+        <div id="logs"></div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="v-settings" class="view">
+      <h2 class="h">Settings</h2>
+      <h3 class="sec">Appearance</h3>
+      <div class="card toggle"><div><b>Theme</b><div class="small muted" id="themeName">Dark</div></div><button class="btn" onclick="toggleTheme()">Switch</button></div>
+      <h3 class="sec">Identity</h3>
+      <div class="card"><div class="kv" id="setIdentity"></div></div>
+      <h3 class="sec">Behaviour</h3>
+      <div class="card"><div class="kv" id="setBehaviour"></div></div>
+      <div class="small muted" style="margin:6px 4px 14px">To change these, edit the variables in Render → your service → Environment (OWNER_NAME, ASSISTANT_NAME, PERSONA, GOALS, TIMEZONE, LOCATION, HUMAN_DELAYS, SUMMARY_HOUR…). Render restarts the bot automatically.</div>
+      <h3 class="sec">Account</h3>
+      <div class="card"><button class="btn danger" style="width:100%" onclick="signOut()">Sign out of this dashboard</button></div>
+    </section>
+  </main>
+
+  <!-- CHAT DETAIL -->
+  <div id="chatDetail" class="detail hidden">
+    <div class="dhead">
+      <button class="iconbtn" onclick="closeChat()" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="av" id="dAv">?</div>
+      <div class="dtitle"><b id="dName">…</b><span id="dNum"></span></div>
+      <span id="dBadge" class="badge bot">BOT</span>
     </div>
-    <div id="pairMsg" class="msg"></div>
+    <div id="msgs"></div>
+    <div class="dfoot">
+      <button id="chatPauseBtn" class="btn grow" style="width:100%" onclick="toggleChatPause()">⏸ Pause bot for this chat</button>
+      <div class="small muted" style="margin-top:8px">To reply yourself, use WhatsApp on your phone. The bot steps aside automatically for a few minutes.</div>
+      <div id="chatMsg" class="msg"></div>
+    </div>
   </div>
 
-  <!-- CONTROLS -->
-  <div class="card">
-    <h2>Controls</h2>
-    <div class="row">
-      <button class="grow" onclick="act('/api/restart','Restarting connection…')">🔄 Restart connection</button>
-      <button class="grow" onclick="fixMac()">🧹 Fix “Bad MAC”</button>
-    </div>
-    <div class="row" style="margin-top:8px">
-      <button class="grow" onclick="openPage('/import')">📥 Import chats / agent</button>
-      <button class="grow danger" onclick="logoutWA()">⏏ Log out WhatsApp</button>
-    </div>
-    <div id="ctlMsg" class="msg"></div>
-  </div>
-
-  <!-- SUMMARY -->
-  <div class="card">
-    <h2>Daily summary</h2>
-    <div id="sumInfo" class="steps">Loading…</div>
-    <div class="row" style="margin-top:10px">
-      <button class="grow" onclick="sumPreview()">👁 Preview today</button>
-      <button class="grow primary" onclick="sumSend()">📤 Send to my WhatsApp now</button>
-    </div>
-    <div id="sumText" class="reply hidden"></div>
-    <div id="sumMsg" class="msg"></div>
-  </div>
-
-  <!-- TEST -->
-  <div class="card">
-    <h2>Test the AI (nothing is sent on WhatsApp)</h2>
-    <textarea id="testMsg" rows="2" placeholder="Type a message like a contact would, e.g. “hey bro how far”"></textarea>
-    <div class="row" style="margin-top:8px"><button class="primary grow" id="testBtn" onclick="testAI()">Send test</button></div>
-    <div id="testReply" class="reply hidden"></div>
-  </div>
-
-  <!-- LOGS -->
-  <div class="card">
-    <h2>Live logs</h2>
-    <div class="tabs">
-      <button id="tabAll" class="on" onclick="setFilter('all')">All</button>
-      <button id="tabErr" onclick="setFilter('error')">Errors</button>
-      <button onclick="copyLogs()">Copy</button>
-      <button onclick="clearView()">Clear view</button>
-    </div>
-    <div id="logs"></div>
-  </div>
-
-  <!-- SETTINGS -->
-  <div class="card">
-    <h2>Settings (change in Render → Environment)</h2>
-    <div class="kv" id="settings"></div>
-  </div>
+  <nav class="bottom">
+    <button class="nv on" data-v="home" onclick="show('home')"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg><span>Home</span></button>
+    <button class="nv" data-v="chats" onclick="show('chats')"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/></svg><span>Chats</span></button>
+    <button class="nv fab" data-v="link" onclick="show('link')"><span class="fabbtn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></span><span class="lbl">Link</span></button>
+    <button class="nv" data-v="dash" onclick="show('dash')"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Dashboard</span></button>
+    <button class="nv" data-v="settings" onclick="show('settings')"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><span>Settings</span></button>
+  </nav>
 </div>
 
 <script>
@@ -156,7 +321,8 @@ var KEY = localStorage.getItem('adminKey') || '';
 var qs = new URLSearchParams(location.search);
 if (qs.get('key')) { KEY = qs.get('key'); localStorage.setItem('adminKey', KEY); history.replaceState(null, '', location.pathname); }
 
-var lastLogId = 0, logs = [], filter = 'all', timer = null, pairing = null, paused = false, pairTick = null;
+var view = 'home', chats = [], openJid = null, openState = 'bot', lastLogId = 0, logs = [], filter = 'all';
+var pairing = null, pairTick = null, paused = false, timer = null, last = null;
 
 function $(id) { return document.getElementById(id); }
 function api(path, opts) {
@@ -167,151 +333,214 @@ function api(path, opts) {
     return r.json().then(function (j) { if (!r.ok) throw { message: j.error || ('Error ' + r.status) }; return j; });
   });
 }
-function showLogin(msg) {
-  $('app').classList.add('hidden'); $('login').classList.remove('hidden');
-  $('loginMsg').textContent = msg || '';
-  if (timer) { clearInterval(timer); timer = null; }
-}
-function saveKey() {
-  KEY = $('keyInput').value.trim();
-  localStorage.setItem('adminKey', KEY);
-  start();
-}
+function flash(id, text, good) { var el = $(id); if (!el) return; el.textContent = text; el.className = 'msg ' + (good ? 'good' : 'err'); }
 function fmtUp(s) {
-  if (s < 60) return s + 's';
-  if (s < 3600) return Math.floor(s / 60) + 'm';
+  if (s < 60) return s + 's'; if (s < 3600) return Math.floor(s / 60) + 'm';
   if (s < 86400) return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
   return Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h';
 }
-function flash(id, text, good) {
-  var el = $(id); el.textContent = text; el.className = 'msg ' + (good ? 'good' : 'err');
+function fmtTime(ts) {
+  if (!ts) return ''; var d = new Date(ts), n = new Date();
+  if (d.toDateString() === n.toDateString()) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString([], { day: 'numeric', month: 'short' });
+}
+function initials(name) {
+  var p = String(name || '').replace(/[^\p{L}\p{N} ]/gu, '').trim().split(/\s+/).filter(Boolean);
+  if (!p.length || /^\d+$/.test(p[0])) return '#';
+  return (p[0][0] + (p[1] ? p[1][0] : '')).toUpperCase();
+}
+function mk(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function badge(state) {
+  var b = mk('span', 'badge ' + state, state === 'human' ? 'HUMAN' : state === 'paused' ? 'PAUSED' : 'BOT'); return b;
 }
 
+/* ---------- theme ---------- */
+var SUN = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+var MOON = '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>';
+function applyTheme(t) {
+  document.documentElement.classList.toggle('light', t === 'light');
+  $('themeIcon').innerHTML = t === 'light' ? MOON : SUN;
+  $('themeName').textContent = t === 'light' ? 'Light' : 'Dark';
+  var m = document.querySelector('meta[name=theme-color]'); if (m) m.content = t === 'light' ? '#ffffff' : '#0b1220';
+}
+function toggleTheme() { var t = document.documentElement.classList.contains('light') ? 'dark' : 'light'; localStorage.setItem('theme', t); applyTheme(t); }
+
+/* ---------- navigation ---------- */
+function show(v) {
+  view = v;
+  ['home', 'chats', 'link', 'dash', 'settings'].forEach(function (n) { $('v-' + n).classList.toggle('on', n === v); });
+  document.querySelectorAll('nav.bottom .nv').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); });
+  $('main').scrollTop = 0;
+  if (v === 'chats' || v === 'home') loadChats();
+}
+
+/* ---------- login ---------- */
+function showLogin(msg) {
+  $('app').classList.add('hidden'); $('login').classList.remove('hidden'); $('loginMsg').textContent = msg || '';
+  if (timer) { clearInterval(timer); timer = null; }
+}
+function saveKey() { KEY = $('keyInput').value.trim(); localStorage.setItem('adminKey', KEY); start(); }
+function signOut() { localStorage.removeItem('adminKey'); KEY = ''; $('keyInput').value = ''; closeChat(); showLogin(''); }
+
+/* ---------- status ---------- */
 function renderStatus(s) {
-  var pill = $('statusPill'), txt = $('statusText'), note = $('statusNote');
-  var cls = 'warn', label = s.status;
-  if (s.connected) { cls = 'ok'; label = 'Connected' + (s.number ? ' · +' + s.number : ''); note.textContent = 'Johnny Tech is online and replying.'; }
-  else if (s.status === 'not-linked') { cls = 'bad'; label = 'Not linked'; note.textContent = 'WhatsApp is not linked yet. Use “Connect WhatsApp” below.'; }
-  else if (/^disconnected|logged-out|error|conflict/.test(s.status)) { cls = 'bad'; label = 'Disconnected (' + s.status + ')'; note.textContent = 'The bot will try to reconnect by itself. If it stays red, tap Restart connection.'; }
-  else { label = s.status === 'connecting' ? 'Connecting…' : s.status; note.textContent = ''; }
-  if (s.paused) { note.textContent = '⏸ Bot is paused: incoming messages are NOT being answered. ' + note.textContent; }
-  pill.className = 'pill ' + cls; txt.textContent = label;
-  $('sRecv').textContent = s.stats.received; $('sRepl').textContent = s.stats.replied;
-  $('sErr').textContent = s.stats.errors; $('sUp').textContent = fmtUp(s.uptime);
+  last = s;
+  $('appTitle').textContent = (s.settings && s.settings.assistantName) || 'Johnny Tech';
+  var cls = 'warn', label = s.status, hero = 'Working…', sub = '';
+  if (s.connected) { cls = 'ok'; label = 'Connected'; hero = s.paused ? 'Bot is paused' : 'Bot is online'; sub = (s.number ? 'WhatsApp +' + s.number + '. ' : '') + (s.paused ? 'Messages are NOT being answered.' : 'Replying to your messages.'); }
+  else if (s.status === 'not-linked') { cls = 'bad'; label = 'Not linked'; hero = 'WhatsApp not linked'; sub = 'Tap Link below to connect your number.'; }
+  else if (/^disconnected|logged-out|error|conflict/.test(s.status)) { cls = 'bad'; label = 'Offline'; hero = 'Disconnected'; sub = 'Reconnecting by itself (' + s.status + '). If it stays red, tap Restart.'; }
+  else { label = 'Connecting…'; hero = 'Connecting to WhatsApp…'; sub = 'This takes a few seconds.'; }
+  $('statusPill').className = 'pill ' + cls; $('statusText').textContent = label;
+  $('heroTitle').textContent = hero; $('heroSub').textContent = sub;
+  ['sRecv', 'dRecv'].forEach(function (i) { $(i).textContent = s.stats.received; });
+  ['sRepl', 'dRepl'].forEach(function (i) { $(i).textContent = s.stats.replied; });
+  ['sErr', 'dErr'].forEach(function (i) { $(i).textContent = s.stats.errors; });
+  $('sUp').textContent = fmtUp(s.uptime);
   paused = s.paused; $('pauseBtn').textContent = paused ? '▶ Resume bot' : '⏸ Pause bot';
 
-  var showConnect = !s.connected && (s.status === 'not-linked' || !s.linked || !!s.pairing);
-  $('connectCard').classList.toggle('hidden', !showConnect);
+  /* link view */
+  var linkedAndUp = s.connected;
+  var needsLink = !s.connected && (s.status === 'not-linked' || !s.linked || !!s.pairing);
+  $('linkTitle').textContent = linkedAndUp ? 'Linked & connected' : needsLink ? 'Not linked yet' : 'Linked, reconnecting';
+  $('linkSub').textContent = linkedAndUp ? (s.number ? '+' + s.number : '') : needsLink ? 'Use the form below' : 'Tap Restart if it stays offline';
+  $('linkDone').classList.toggle('hidden', !(linkedAndUp || (!needsLink)));
+  $('linkForm').classList.toggle('hidden', !needsLink);
   if (!$('pairNumber').value && s.phoneNumber) $('pairNumber').value = s.phoneNumber;
-  pairing = (!s.connected && s.pairing) ? s.pairing : null;
-  renderPairing();
+  pairing = (!s.connected && s.pairing) ? s.pairing : null; renderPairing();
 
+  /* summary + settings */
   if (s.summary) {
     var sm = s.summary;
-    $('sumInfo').textContent = sm.enabled
-      ? 'Sent to your WhatsApp every night at ' + ('0' + sm.hour).slice(-2) + ':00 (' + sm.timezone + '). Today: ' + (sm.sentToday ? 'already sent ✅' : 'not sent yet.')
-      : 'Turned off (SUMMARY_ENABLED=false in Render).';
+    $('sumInfo').textContent = sm.enabled ? 'Sent to your WhatsApp every night at ' + ('0' + sm.hour).slice(-2) + ':00 (' + sm.timezone + '). Today: ' + (sm.sentToday ? 'already sent ✅' : 'not sent yet.') : 'Turned off (SUMMARY_ENABLED=false in Render).';
   }
-
   var st = s.settings || {};
-  var rows = [
-    ['Owner', st.ownerName], ['Assistant', st.assistantName], ['Location', st.location],
-    ['Timezone', st.timezone], ['Reply speed', st.fastReplies ? 'Fast' : 'Human-like (slow)'],
-    ['AI providers', (st.ai && st.ai.length) ? st.ai.join(' → ') : 'none'],
-    ['Saved login', st.redis ? 'Yes (Upstash)' : 'NO – lost on every deploy'],
-    ['Reply limit', st.maxPerHour + ' / hour / contact']
-  ];
-  var kv = $('settings'); kv.innerHTML = '';
-  rows.forEach(function (r) { var a = document.createElement('div'); a.textContent = r[0]; var b = document.createElement('div'); b.textContent = r[1] == null ? '-' : r[1]; kv.appendChild(a); kv.appendChild(b); });
+  fillKV('setIdentity', [['Owner', st.ownerName], ['Assistant', st.assistantName], ['Location', st.location], ['Timezone', st.timezone]]);
+  fillKV('setBehaviour', [['Reply speed', st.fastReplies ? 'Fast' : 'Human-like (slow)'], ['AI providers', (st.ai && st.ai.length) ? st.ai.join(' → ') : 'none'], ['Saved login', st.redis ? 'Yes (Upstash)' : 'NO – lost on every deploy'], ['Reply limit', st.maxPerHour + ' / hour / contact']]);
+}
+function fillKV(id, rows) {
+  var kv = $(id); kv.innerHTML = '';
+  rows.forEach(function (r) { kv.appendChild(mk('div', '', r[0])); kv.appendChild(mk('div', '', r[1] == null || r[1] === '' ? '-' : String(r[1]))); });
 }
 
+/* ---------- pairing ---------- */
 function renderPairing() {
-  if (pairTick) clearInterval(pairTick);
+  if (pairTick) { clearInterval(pairTick); pairTick = null; }
   if (!pairing) { $('codeBox').classList.add('hidden'); return; }
-  $('codeBox').classList.remove('hidden');
-  $('codeText').textContent = pairing.code;
+  $('codeBox').classList.remove('hidden'); $('codeText').textContent = pairing.code;
   var update = function () {
     var left = Math.max(0, 120 - Math.floor((Date.now() - pairing.at) / 1000));
     $('codeTimer').textContent = left > 0 ? Math.floor(left / 60) + ':' + ('0' + (left % 60)).slice(-2) : 'expired: tap “Get pairing code” again';
   };
   update(); pairTick = setInterval(update, 1000);
 }
-
-function renderLogs() {
-  var box = $('logs');
-  var atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-  box.innerHTML = '';
-  logs.forEach(function (l) {
-    if (filter === 'error' && l.level !== 'error') return;
-    var d = document.createElement('div'); d.className = 'ln ' + l.level;
-    var t = document.createElement('span'); t.className = 't'; t.textContent = new Date(l.t).toLocaleTimeString();
-    d.appendChild(t); d.appendChild(document.createTextNode(l.msg)); box.appendChild(d);
-  });
-  if (atBottom) box.scrollTop = box.scrollHeight;
-}
-function setFilter(f) { filter = f; $('tabAll').className = f === 'all' ? 'on' : ''; $('tabErr').className = f === 'error' ? 'on' : ''; renderLogs(); $('logs').scrollTop = $('logs').scrollHeight; }
-function clearView() { logs = []; renderLogs(); }
-function copyLogs() {
-  var text = logs.filter(function (l) { return filter === 'all' || l.level === 'error'; }).map(function (l) { return new Date(l.t).toLocaleTimeString() + ' ' + l.msg; }).join('\n');
-  if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { flash('ctlMsg', 'Logs copied.', true); });
-}
-
-function poll() {
-  api('/api/status').then(renderStatus).catch(function (e) { if (e.auth) showLogin('Wrong or missing admin key.'); });
-  api('/api/logs?since=' + lastLogId).then(function (r) {
-    if (r.logs.length) { r.logs.forEach(function (l) { logs.push(l); lastLogId = Math.max(lastLogId, l.id); }); if (logs.length > 500) logs = logs.slice(-500); renderLogs(); }
-  }).catch(function () {});
-}
-function start() {
-  if (!KEY) { showLogin(''); return; }
-  api('/api/status').then(function (s) {
-    $('login').classList.add('hidden'); $('app').classList.remove('hidden');
-    renderStatus(s); poll();
-    if (!timer) timer = setInterval(poll, 3000);
-  }).catch(function (e) { if (e.auth) showLogin(KEY ? 'Wrong admin key, or ADMIN_KEY is not set in Render.' : ''); else showLogin(e.message || 'Cannot reach the bot.'); });
-}
-
 function copyCode() {
   var code = $('codeText').textContent.replace(/[^A-Za-z0-9]/g, '');
-  var done = function () { flash('pairMsg', 'Code copied: ' + code, true); };
-  if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(code).then(done).catch(function () { flash('pairMsg', 'Press and hold the code to copy it.', false); }); }
-  else { flash('pairMsg', 'Press and hold the code to copy it.', false); }
+  var ok = function () { flash('linkMsg', 'Code copied: ' + code, true); };
+  var no = function () { flash('linkMsg', 'Press and hold the code to copy it.', false); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(ok).catch(no); else no();
 }
 function getCode() {
   var n = $('pairNumber').value.replace(/[^0-9]/g, '');
-  if (n.length < 7) { flash('pairMsg', 'Enter your number with country code, e.g. 23276123456', false); return; }
-  $('pairBtn').disabled = true; flash('pairMsg', 'Asking WhatsApp for a code… (about 10 seconds)', true);
+  if (n.length < 7) { flash('linkMsg', 'Enter your number with country code, e.g. 23276123456', false); return; }
+  $('pairBtn').disabled = true; flash('linkMsg', 'Asking WhatsApp for a code… (about 10 seconds)', true);
   api('/api/pair', { method: 'POST', body: JSON.stringify({ number: n }) }).then(function (r) {
-    pairing = r.pairing; renderPairing(); flash('pairMsg', 'Code ready. Enter it on your phone now.', true);
-  }).catch(function (e) { flash('pairMsg', e.message || 'Failed', false); }).then(function () { $('pairBtn').disabled = false; });
+    pairing = r.pairing; renderPairing(); flash('linkMsg', 'Code ready. Enter it on your phone now.', true);
+  }).catch(function (e) { flash('linkMsg', e.message || 'Failed', false); }).then(function () { $('pairBtn').disabled = false; });
 }
-function act(path, msg) {
-  flash('ctlMsg', msg, true);
-  api(path, { method: 'POST', body: '{}' }).then(function (r) { flash('ctlMsg', r.message || 'Done.', true); setTimeout(poll, 1500); }).catch(function (e) { flash('ctlMsg', e.message || 'Failed', false); });
+function logoutWA() { if (confirm('Log out WhatsApp? You will need to link again with a new code.')) act('/api/logout', 'Logging out…', 'linkMsg'); }
+
+/* ---------- actions ---------- */
+function act(path, msg, msgId) {
+  msgId = msgId || 'homeMsg'; flash(msgId, msg, true);
+  api(path, { method: 'POST', body: '{}' }).then(function (r) { flash(msgId, r.message || 'Done.', true); setTimeout(tick, 1500); }).catch(function (e) { flash(msgId, e.message || 'Failed', false); });
 }
-function logoutWA() {
-  if (!confirm('Log out WhatsApp? You will need to link again with a new code.')) return;
-  act('/api/logout', 'Logging out…');
+function togglePause() { api('/api/pause', { method: 'POST', body: JSON.stringify({ paused: !paused }) }).then(tick).catch(function (e) { flash('homeMsg', e.message || 'Failed', false); }); }
+function fixMac() { flash('toolMsg', 'Clearing old sessions…', true); api('/clear-sessions').then(function (r) { flash('toolMsg', r.message || 'Done.', true); }).catch(function (e) { flash('toolMsg', e.message || 'Failed', false); }); }
+function openPage(p) { location.href = p + '?key=' + encodeURIComponent(KEY); }
+
+/* ---------- chats ---------- */
+function loadChats() {
+  return api('/api/chats').then(function (r) { chats = r.chats || []; $('dChats').textContent = chats.length; renderChats(); renderHomeChats(); }).catch(function (e) { if (e.auth) showLogin('Wrong admin key.'); });
 }
-function fixMac() {
-  flash('ctlMsg', 'Clearing old sessions…', true);
-  api('/clear-sessions').then(function (r) { flash('ctlMsg', r.message || 'Done.', true); }).catch(function (e) { flash('ctlMsg', e.message || 'Failed', false); });
+function chatCard(c) {
+  var card = mk('div', 'chat'); card.onclick = function () { openChat(c.jid); };
+  card.appendChild(mk('div', 'av', initials(c.name)));
+  var body = mk('div', 'cbody'), row = mk('div', 'crow');
+  row.appendChild(mk('span', 'cname', c.name)); row.appendChild(mk('span', 'ctime', fmtTime(c.ts)));
+  var prefix = c.role === 'bot' ? 'Bot: ' : c.role === 'owner' ? 'You: ' : '';
+  body.appendChild(row); body.appendChild(mk('div', 'cprev', prefix + (c.last || ''))); body.appendChild(badge(c.state));
+  card.appendChild(body); return card;
 }
-function togglePause() {
-  api('/api/pause', { method: 'POST', body: JSON.stringify({ paused: !paused }) }).then(function () { poll(); }).catch(function (e) { flash('ctlMsg', e.message || 'Failed', false); });
+function renderChats() {
+  var box = $('chatList'), q = ($('chatSearch').value || '').toLowerCase().trim(); box.innerHTML = '';
+  var list = chats.filter(function (c) { return !q || (c.name + ' ' + c.number + ' ' + (c.last || '')).toLowerCase().indexOf(q) >= 0; });
+  if (!list.length) { box.appendChild(mk('div', 'empty', chats.length ? 'No chats match your search.' : 'No conversations yet. When someone messages you on WhatsApp, they show up here with the bot’s replies.')); return; }
+  list.forEach(function (c) { box.appendChild(chatCard(c)); });
+}
+function renderHomeChats() {
+  var box = $('homeChats'); box.innerHTML = '';
+  if (!chats.length) { box.appendChild(mk('div', 'empty', 'No conversations yet.')); return; }
+  chats.slice(0, 3).forEach(function (c) { box.appendChild(chatCard(c)); });
+}
+
+/* ---------- chat detail ---------- */
+function openChat(jid) {
+  openJid = jid; $('chatDetail').classList.remove('hidden'); $('msgs').innerHTML = ''; $('chatMsg').textContent = '';
+  var c = chats.filter(function (x) { return x.jid === jid; })[0];
+  if (c) { $('dName').textContent = c.name; $('dNum').textContent = c.number ? '+' + c.number : ''; $('dAv').textContent = initials(c.name); }
+  loadChat(true);
+}
+function closeChat() { openJid = null; $('chatDetail').classList.add('hidden'); }
+function loadChat(force) {
+  if (!openJid) return;
+  var jid = openJid;
+  api('/api/chat?jid=' + encodeURIComponent(jid)).then(function (r) {
+    if (jid !== openJid) return;
+    $('dName').textContent = r.name; $('dNum').textContent = r.number ? '+' + r.number : ''; $('dAv').textContent = initials(r.name);
+    openState = r.state; var b = $('dBadge'); b.className = 'badge ' + r.state; b.textContent = r.state === 'human' ? 'HUMAN' : r.state === 'paused' ? 'PAUSED' : 'BOT';
+    $('chatPauseBtn').textContent = (r.state === 'human' || r.state === 'paused') ? '▶ Resume bot for this chat' : '⏸ Pause bot for this chat';
+    var box = $('msgs'), atBottom = force || box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+    box.innerHTML = '';
+    if (!r.messages.length) box.appendChild(mk('div', 'empty', 'No messages saved for this chat yet.'));
+    r.messages.forEach(function (m) {
+      var b = mk('div', 'bub ' + m.role); b.appendChild(mk('span', 'who', m.role === 'bot' ? 'Bot' : m.role === 'owner' ? 'You' : ''));
+      if (m.role === 'contact') b.removeChild(b.firstChild);
+      b.appendChild(document.createTextNode(m.text)); b.appendChild(mk('span', 'tm', fmtTime(m.ts))); box.appendChild(b);
+    });
+    if (atBottom) box.scrollTop = box.scrollHeight;
+  }).catch(function (e) { if (e.auth) showLogin('Wrong admin key.'); else flash('chatMsg', e.message || 'Could not load chat', false); });
+}
+function toggleChatPause() {
+  if (!openJid) return; var want = !(openState === 'human' || openState === 'paused');
+  api('/api/chat/pause', { method: 'POST', body: JSON.stringify({ jid: openJid, paused: want }) }).then(function () {
+    flash('chatMsg', want ? 'Bot paused for this chat.' : 'Bot resumed for this chat.', true); loadChat(false); loadChats();
+  }).catch(function (e) { flash('chatMsg', e.message || 'Failed', false); });
+}
+
+/* ---------- dashboard tools ---------- */
+function renderLogs() {
+  var box = $('logs'), atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40; box.innerHTML = '';
+  logs.forEach(function (l) {
+    if (filter === 'error' && l.level !== 'error') return;
+    var d = mk('div', 'ln ' + l.level); d.appendChild(mk('span', 't', new Date(l.t).toLocaleTimeString())); d.appendChild(document.createTextNode(l.msg)); box.appendChild(d);
+  });
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+function setFilter(f) { filter = f; $('tabAll').className = 'btn' + (f === 'all' ? ' on' : ''); $('tabErr').className = 'btn' + (f === 'error' ? ' on' : ''); renderLogs(); $('logs').scrollTop = $('logs').scrollHeight; }
+function clearView() { logs = []; renderLogs(); }
+function copyLogs() {
+  var text = logs.filter(function (l) { return filter === 'all' || l.level === 'error'; }).map(function (l) { return new Date(l.t).toLocaleTimeString() + ' ' + l.msg; }).join('\n');
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { flash('toolMsg', 'Logs copied.', true); });
 }
 function sumPreview() {
   var box = $('sumText'); box.classList.remove('hidden'); box.textContent = 'Writing summary…';
-  api('/api/summary', { method: 'POST', body: JSON.stringify({ action: 'preview' }) }).then(function (r) { box.textContent = r.text; })
-    .catch(function (e) { box.textContent = 'Error: ' + (e.message || 'failed'); });
+  api('/api/summary', { method: 'POST', body: JSON.stringify({ action: 'preview' }) }).then(function (r) { box.textContent = r.text; }).catch(function (e) { box.textContent = 'Error: ' + (e.message || 'failed'); });
 }
 function sumSend() {
   flash('sumMsg', 'Sending…', true);
-  api('/api/summary', { method: 'POST', body: JSON.stringify({ action: 'send' }) }).then(function (r) {
-    var box = $('sumText'); box.classList.remove('hidden'); box.textContent = r.text; flash('sumMsg', r.message, true);
-  }).catch(function (e) { flash('sumMsg', e.message || 'Failed', false); });
+  api('/api/summary', { method: 'POST', body: JSON.stringify({ action: 'send' }) }).then(function (r) { var box = $('sumText'); box.classList.remove('hidden'); box.textContent = r.text; flash('sumMsg', r.message, true); }).catch(function (e) { flash('sumMsg', e.message || 'Failed', false); });
 }
-function openPage(p) { location.href = p + '?key=' + encodeURIComponent(KEY); }
 function testAI() {
   var m = $('testMsg').value.trim(); if (!m) return;
   $('testBtn').disabled = true; var box = $('testReply'); box.classList.remove('hidden'); box.textContent = 'Thinking…';
@@ -319,6 +548,24 @@ function testAI() {
     .catch(function (e) { box.textContent = 'Error: ' + (e.message || 'failed'); }).then(function () { $('testBtn').disabled = false; });
 }
 
+/* ---------- polling ---------- */
+function tick() {
+  api('/api/status').then(renderStatus).catch(function (e) { if (e.auth) showLogin('Wrong or missing admin key.'); });
+  api('/api/logs?since=' + lastLogId).then(function (r) {
+    if (r.logs.length) { r.logs.forEach(function (l) { logs.push(l); lastLogId = Math.max(lastLogId, l.id); }); if (logs.length > 500) logs = logs.slice(-500); if (view === 'dash') renderLogs(); }
+  }).catch(function () {});
+  if (view === 'chats' || view === 'home') loadChats();
+  if (openJid) loadChat(false);
+}
+function start() {
+  if (!KEY) { showLogin(''); return; }
+  api('/api/status').then(function (s) {
+    $('login').classList.add('hidden'); $('app').classList.remove('hidden');
+    renderStatus(s); loadChats(); tick();
+    if (!timer) timer = setInterval(tick, 4000);
+  }).catch(function (e) { if (e.auth) showLogin('Wrong admin key, or ADMIN_KEY is not set in Render.'); else showLogin(e.message || 'Cannot reach the bot.'); });
+}
+applyTheme(localStorage.getItem('theme') || 'dark');
 start();
 </script>
 </body>
