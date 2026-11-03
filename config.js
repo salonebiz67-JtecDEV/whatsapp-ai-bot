@@ -35,7 +35,7 @@ export const config = {
   languageStyle: process.env.LANGUAGE_STYLE || 'Reply in the same language and style the contact uses (English or Krio). Keep it natural.',
   timezone: process.env.TIMEZONE || 'Africa/Freetown',        // e.g. Europe/London, America/New_York, Africa/Accra
   location: process.env.LOCATION || 'Freetown, Sierra Leone',            // e.g. London, UK (optional, shown to the AI)
-  goals: process.env.GOALS || "Reply to Johnny's WhatsApp messages for him. Greet back, chat casually, and handle simple things. If someone asks something personal or something you can't answer, say you're Johnny Tech, Johnny's personal assistant, and you'll let Johnny know when he's back.",
+  goals: process.env.GOALS || "Reply to Johnny's WhatsApp messages for him: greet back, chat casually and answer simple things naturally.",
   customRules: process.env.CUSTOM_RULES || '',
   adminKey: process.env.ADMIN_KEY || '',
   summaryEnabled: (process.env.SUMMARY_ENABLED || 'true').toLowerCase() !== 'false',   // nightly summary on your WhatsApp

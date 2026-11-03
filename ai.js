@@ -67,6 +67,35 @@ function kwMatch(lower, kw) {
 }
 
 
+// Removes "I'm Johnny Tech, Johnny's AI assistant / just a reminder / he isn't with his phone / I'll let him know" sentences
+// from normal chat replies. Used as a backstop so the AI never keeps re-introducing itself.
+function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+export function stripAssistantIntro(text, emptyFallback = '') {
+  if (!text) return text;
+  const bot = escapeRe(config.assistantName || 'assistant');
+  const owner = escapeRe(config.ownerName || 'owner');
+  const patterns = [
+    new RegExp(`\\b(i'?m|i am|this is|my name is)\\b[^.!?\\n]*\\b(${bot}|assistant|ai)\\b`, 'i'),
+    /\b(ai|virtual|personal|digital)\s+assistant\b/i,
+    /\bjust\s+(a\s+)?(quick\s+|friendly\s+)?(reminder|heads[\s-]?up)\b/i,
+    /\bjust\s+so\s+you\s+know\b/i,
+    /\bto\s+remind\s+you\b/i,
+    /\b(isn'?t|is\s+not|not)\s+(with|near|on)\s+(his|her|their)\s+phone\b/i,
+    /\bas\s+soon\s+as\s+(he|she|they)('s|\s+is|\s+are)?\s+(back|free|available|around)\b/i,
+    /\bwhen\s+(he|she|they)('s|\s+is|\s+are)?\s+(back|free|available)\b/i,
+    new RegExp(`\\blet\\s+${owner}\\s+know\\b`, 'i'),
+    /\bi('ll|\s+will)\s+(let|tell|pass)\b[^.!?\n]*\b(him|her|them)\b/i,
+  ];
+  const outLines = [];
+  for (const line of String(text).split('\n')) {
+    const sentences = line.split(/(?<=[.!?])\s+/);
+    const kept = sentences.filter(s => s.trim() && !patterns.some(p => p.test(s)));
+    if (kept.length) outLines.push(kept.join(' ').trim());
+  }
+  const result = outLines.join('\n').trim();
+  return result || emptyFallback;
+}
+
 // 1. FINANCIAL LANGUAGE - HARD BLOCK
 const FINANCIAL_KEYWORDS = [
   'account number', 'acct number', 'account no', 'acct no', 'a/c number',
@@ -216,7 +245,9 @@ export function isIdentityQuestion(text) {
   if (o && (lower.includes(`are you ${o}`) || lower.includes(`is this ${o}`) || lower.includes(`real ${o}`) || lower.includes(`talking to ${o}`) || lower.includes(`is this really ${o}`))) return true;
   // Pattern match: "is this really you" variations
   if (/\b(is|are|am).{0,10}\b(really|actually|truly).{0,10}\b(you|him|her)\b/i.test(lower)) return true;
-  if (/\b(bot|ai|automated|robot)\b/i.test(lower) && /\b(you|this|are|is)\b/i.test(lower)) return true;
+  if (/\b(are|r)\s+(you|u)\s+(a\s+|an\s+)?(bot|robot|ai|a\.i\.?|automated|chatbot)\b/i.test(lower)) return true;
+  if (/\b(is|this)\s+(this\s+)?(a\s+|an\s+)?(bot|robot|ai|a\.i\.?|automated|chatbot)\b/i.test(lower) && /\?|\bor\b/.test(lower)) return true;
+  if (/\btalking\s+to\s+(a\s+|an\s+)?(bot|robot|ai|chatbot)\b/i.test(lower)) return true;
   
   return false;
 }
@@ -326,6 +357,8 @@ export function getNigerianTimeContext() {
 
 export async function generateReply(jid, userMessage, history = [], ownerStyleSamples = null, mediaInfo = null, options = {}) {
   const lowerMsg = (userMessage || '').toLowerCase();
+  // Old replies that contained the "I'm Johnny Tech, Johnny's assistant..." intro would teach the AI to repeat it. Clean them.
+  history = (history || []).map(h => (h && h.role === 'assistant') ? { ...h, content: stripAssistantIntro(h.content || '', '🙂') } : h);
   
   // ===== MANDATORY CHECKS BEFORE AI =====
   const skipPreChecks = options.skipPreChecks || options.isAgentTask || false;
@@ -373,15 +406,15 @@ export async function generateReply(jid, userMessage, history = [], ownerStyleSa
   const OWNER = config.ownerName;
   const BOT = config.assistantName;
   const disclosureInstruction = isForcedDisclosure
-    ? `The contact is asking who/what you are. Answer honestly in your own natural words: you are ${BOT}, ${OWNER}'s personal AI assistant replying for ${OWNER}. Do not claim to be human or to be ${OWNER}.`
+    ? `7. The contact is asking who/what you are. Answer honestly in your own natural words: you are ${BOT}, ${OWNER}'s personal AI assistant replying for ${OWNER}. Do not claim to be human or to be ${OWNER}.`
     : shouldDisclose
-      ? `Include ONE short natural sentence saying you are ${BOT}, ${OWNER}'s assistant, then carry on.`
-      : `Don't announce what you are in greetings or normal chat: just reply naturally and warmly, like a personal assistant answering for ${OWNER}. Only if you can't answer something (personal, unknown, or needs ${OWNER}'s own decision), say you're ${BOT}, ${OWNER}'s personal assistant, and you'll let ${OWNER} know when he's back.`;
+      ? `7. Include ONE short natural sentence saying you are ${BOT}, ${OWNER}'s assistant, then carry on.`
+      : '';
 
   const safeStyle = (ownerStyleSamples || []).filter(s => !containsFinancialLanguage(s, true) && !containsRomanticLanguage(s, true)).slice(-6);
 
   dynamicSystemPrompt = `
-You are ${BOT}, an AI assistant that answers WhatsApp messages on behalf of ${OWNER}. You are an AI, not ${OWNER}.
+You are ${BOT}, replying to WhatsApp messages on behalf of ${OWNER}.
 
 PERSONALITY:
 ${config.persona}
@@ -393,12 +426,13 @@ YOUR GOALS:
 ${config.goals}
 ${config.customRules ? `\nEXTRA RULES:\n${config.customRules}\n` : ''}
 CORE RULES (never break):
-1. Reply to every message. Never ignore anyone. Keep replies short (1-3 short lines) unless they ask for detail.
-2. Honesty: if anyone sincerely asks whether you are a bot, AI, human, or ${OWNER}, say plainly that you are ${BOT}, ${OWNER}'s AI assistant. Never claim to be human or to be ${OWNER}. Understand what the person means and reply to the actual message, never with canned or keyword-style replies.
-3. Never make promises, payments or commitments for ${OWNER}. Never share or ask for bank/account details or money. If money, legal or an urgent personal matter comes up, say you'll pass it to ${OWNER}.
-4. No romantic or flirty tone. Talk to different kinds of people (men, women, elders, customers), so never call anyone 'bro', 'sis', 'man', 'ma', 'sir', 'boss' or similar, and don't assume gender. Use their name or no label at all. Only mirror such a word if the contact uses it first.
-5. If you don't know something, say so and offer to pass a message to ${OWNER}. Never invent facts about ${OWNER}.
-6. ${disclosureInstruction}
+1. Reply to every message. Keep replies short (1-3 short lines) unless they ask for detail. Understand what the person really means and answer that, never with canned replies.
+2. NORMAL CHAT (greetings, small talk, jokes, how are you, general questions): just chat naturally like a friendly person. Do NOT say you are an AI, an assistant or a bot. Do NOT introduce yourself. Do NOT say "just a reminder" or "just so you know". Do NOT say ${OWNER} is away, busy, or not with his phone. Never repeat an introduction.
+3. ONLY when the person asks something you genuinely cannot answer (something personal about ${OWNER}, private matters, ${OWNER}'s plans or decisions, money, or a fact you don't have), begin your reply with the exact tag [NEEDS_OWNER] followed by a short natural reply saying you're ${BOT}, ${OWNER}'s personal assistant, and you'll let ${OWNER} know when he's back. Never invent facts about ${OWNER}.
+4. HONESTY: if someone sincerely asks whether you are a bot, an AI, a human, or ${OWNER} himself, answer truthfully. Never claim to be human or to be ${OWNER}.
+5. Never make promises, payments or commitments for ${OWNER}. Never share or ask for bank/account details or money.
+6. No romantic or flirty tone. You talk to men, women, elders and customers, so never call anyone 'bro', 'sis', 'man', 'ma', 'sir', 'boss' or similar, and don't assume gender. Use their name or no label. Only mirror such a word if the contact uses it first.
+${disclosureInstruction}
 
 ${safeStyle.length ? `How ${OWNER} usually chats (tone reference only, don't copy romantic/financial lines):\n- ${safeStyle.join('\n- ')}\n` : ''}${isNewContact ? 'This is a new contact.' : 'You have chatted with this contact before.'}
 Time: ${timeContext.formatted} - use "${timeContext.greeting}" if you greet.
@@ -513,10 +547,21 @@ Time: ${timeContext.formatted} - use "${timeContext.greeting}" if you greet.
 
   if (!generatedReply) {
     console.error('💥 All AI failed:', lastError?.message?.slice(0,300));
-    return `Hello! I'm ${config.assistantName}, ${config.ownerName}'s assistant. Give me a moment and I'll get back to you shortly 🙂`;
+    return `Give me a moment and I'll get back to you shortly 🙂`;
   }
 
   // ===== POST-GENERATION HARD FILTERS =====
+
+  // [NEEDS_OWNER] = the AI says it truly can't answer -> keep the "I'm <assistant>, I'll let <owner> know" wording.
+  // Otherwise (normal chat) remove any intro the AI added anyway.
+  const needsOwner = /\[NEEDS_OWNER\]/i.test(generatedReply);
+  generatedReply = generatedReply.replace(/\[NEEDS_OWNER\]\s*/gi, '').trim();
+  if (!needsOwner && !isForcedDisclosure && !options.isAgentTask && !shouldDisclose) {
+    const cleaned = stripAssistantIntro(generatedReply, '');
+    if (cleaned !== generatedReply) console.log(`✂️ Removed repeated intro from reply for ${jid}`);
+    generatedReply = cleaned || '🙂';
+  }
+  if (needsOwner) console.log(`🙋 AI flagged this chat as needing ${config.ownerName} (${jid})`);
   
   // 1. Check if generated reply contains financial language -> BLOCK
   if (containsFinancialLanguage(generatedReply)) {
