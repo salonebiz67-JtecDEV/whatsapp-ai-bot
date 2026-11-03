@@ -7,6 +7,7 @@ import { createAuthState } from './auth.js';
 import { getMemoryStore } from './memory.js';
 import { generateReply, isHandoffRequest, parseOwnerCommand, getOwnerHelpText, getNigerianTimeContext } from './ai.js';
 import { extractOwnerStyleFromExport } from './import.js';
+import fs from 'fs';
 import { getAgentManager, parseAgentCommand, parseNaturalAgentIntent, extractNumbersFromVcard, extractNumbersRobust } from './agent.js';
 
 // Suppress noisy Bad MAC stack traces - keep logs clean, only show summary
@@ -36,6 +37,156 @@ console.error = (...args) => {
   originalConsoleError(...args);
 };
 
+// ===== Dashboard: in-memory log buffer + counters =====
+global.stats = { received: 0, replied: 0, errors: 0, startedAt: Date.now() };
+global.botPaused = false;
+global.pairing = null;
+global.manualConnect = false;
+const LOG_MAX = 400;
+const logBuffer = [];
+let logSeq = 0;
+function safeStr(a) {
+  if (a instanceof Error) return a.stack || a.message;
+  if (typeof a === 'string') return a;
+  try { return JSON.stringify(a); } catch { return String(a); }
+}
+function pushLog(level, args) {
+  try {
+    const msg = args.map(safeStr).join(' ').slice(0, 700);
+    logBuffer.push({ id: ++logSeq, t: Date.now(), level, msg });
+    if (logBuffer.length > LOG_MAX) logBuffer.shift();
+    if (level === 'error') global.stats.errors++;
+  } catch {}
+}
+{
+  const _log = console.log.bind(console);
+  const _warn = console.warn.bind(console);
+  const _err = console.error;
+  console.log = (...a) => { pushLog('info', a); _log(...a); };
+  console.warn = (...a) => { pushLog('warn', a); _warn(...a); };
+  console.error = (...a) => {
+    const m = a.map(safeStr).join(' ');
+    if (!(m.includes('Bad MAC') || m.includes('Failed to decrypt') || m.includes('session_cipher'))) pushLog('error', a);
+    _err(...a);
+  };
+}
+
+let dashboardHtml = '<h2>dashboard.html is missing. Upload it to your GitHub repo next to index.js.</h2>';
+try { dashboardHtml = fs.readFileSync(new URL('./dashboard.html', import.meta.url), 'utf8'); } catch (e) { console.warn('dashboard.html not found:', e.message); }
+
+function readBody(req) {
+  return new Promise(resolve => {
+    let b = '';
+    req.on('data', c => { b += c; if (b.length > 1e6) req.destroy(); });
+    req.on('end', () => { try { resolve(b ? JSON.parse(b) : {}); } catch { resolve({}); } });
+  });
+}
+function sendJson(res, code, obj) {
+  res.writeHead(code, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(obj));
+}
+function isLinked() {
+  const c = auth && auth.state && auth.state.creds;
+  return !!(c && (c.registered || c.me));
+}
+
+async function handleApi(req, res, reqPath) {
+  try {
+    if (reqPath === '/api/status') {
+      const ai = [];
+      if (config.geminiApiKey) ai.push('Gemini');
+      if (config.groqApiKey) ai.push('Groq');
+      if (config.cerebrasApiKey) ai.push('Cerebras');
+      if (config.githubToken) ai.push('GitHub');
+      if (config.openrouterApiKey) ai.push('OpenRouter');
+      return sendJson(res, 200, {
+        status: global.botStatus || 'starting',
+        connected: global.botStatus === 'connected',
+        linked: isLinked(),
+        number: sock && sock.user && sock.user.id ? sock.user.id.split(':')[0].split('@')[0] : null,
+        uptime: Math.floor(process.uptime()),
+        paused: !!global.botPaused,
+        stats: global.stats,
+        pairing: global.pairing,
+        phoneNumber: config.phoneNumber,
+        settings: {
+          ownerName: config.ownerName, assistantName: config.assistantName, location: config.location,
+          timezone: config.timezone, fastReplies: config.fastReplies, ai, redis: !!(auth && auth.isRedis),
+          maxPerHour: config.maxPerHour
+        }
+      });
+    }
+    if (reqPath === '/api/logs') {
+      const since = parseInt(new URL(req.url, 'http://localhost').searchParams.get('since') || '0', 10);
+      return sendJson(res, 200, { logs: logBuffer.filter(l => l.id > since) });
+    }
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'Use POST' });
+    const body = await readBody(req);
+
+    if (reqPath === '/api/pause') {
+      global.botPaused = !!body.paused;
+      console.log(global.botPaused ? '⏸ Bot PAUSED from dashboard' : '▶️ Bot RESUMED from dashboard');
+      return sendJson(res, 200, { ok: true, paused: global.botPaused });
+    }
+    if (reqPath === '/api/restart') {
+      if (sock && global.sockRef) {
+        console.log('🔄 Restart requested from dashboard');
+        try { sock.end(new Error('Manual restart from dashboard')); } catch {}
+        return sendJson(res, 200, { ok: true, message: 'Restarting… it reconnects in about 10 seconds.' });
+      }
+      global.manualConnect = true;
+      startBot();
+      return sendJson(res, 200, { ok: true, message: 'Starting connection…' });
+    }
+    if (reqPath === '/api/logout') {
+      console.log('⏏ Logout requested from dashboard');
+      try { if (sock && global.sockRef) await sock.logout(); } catch (e) { console.log('logout note: ' + e.message); }
+      try { if (auth && auth.clearState) await auth.clearState(); } catch {}
+      global.manualConnect = false;
+      global.pairing = null;
+      global.botStatus = 'not-linked';
+      isStarting = false;
+      return sendJson(res, 200, { ok: true, message: 'Logged out. Use “Connect WhatsApp” to link again.' });
+    }
+    if (reqPath === '/api/pair') {
+      const number = String(body.number || config.phoneNumber || '').replace(/[^0-9]/g, '');
+      if (number.length < 7) return sendJson(res, 400, { error: 'Enter your WhatsApp number with country code, e.g. 23276123456' });
+      if (global.botStatus === 'connected') return sendJson(res, 400, { error: 'Already connected. Log out first to link a different number.' });
+      if (isLinked()) return sendJson(res, 400, { error: 'This bot is already linked. Tap “Restart connection” instead of asking for a new code.' });
+      global.manualConnect = true;
+      if (!global.sockRef) {
+        startBot();
+        for (let i = 0; i < 30 && !global.sockRef; i++) await delay(500);
+      }
+      if (!global.sockRef) return sendJson(res, 500, { error: 'Could not start the connection. Check the logs below and try again.' });
+      await delay(3000);
+      try {
+        const raw = await sock.requestPairingCode(number);
+        const code = (raw || '').match(/.{1,4}/g)?.join('-') || raw;
+        global.pairing = { code, number, at: Date.now() };
+        console.log(`🔑 Pairing code generated from dashboard for ${number}`);
+        return sendJson(res, 200, { ok: true, pairing: global.pairing });
+      } catch (e) {
+        console.error('Pairing code failed:', e.message);
+        return sendJson(res, 500, { error: 'WhatsApp refused the code request: ' + e.message });
+      }
+    }
+    if (reqPath === '/api/test') {
+      const message = String(body.message || '').slice(0, 1000);
+      if (!message) return sendJson(res, 400, { error: 'Type a message first' });
+      const reply = await generateReply('dashboard-test', message, [], [], null, {});
+      const clean = reply.startsWith('__HANDOFF__')
+        ? '[Handoff triggered: the real bot would pass this to you] ' + reply.replace('__HANDOFF__', '').split('__REASON__')[0].trim()
+        : reply;
+      return sendJson(res, 200, { reply: clean });
+    }
+    return sendJson(res, 404, { error: 'Unknown API route' });
+  } catch (e) {
+    console.error('API error:', e.message);
+    return sendJson(res, 500, { error: e.message });
+  }
+}
+
 function isAuthorized(req) {
   if (!config.adminKey) return false;
   const u = new URL(req.url, 'http://localhost');
@@ -45,12 +196,17 @@ function isAuthorized(req) {
 
 const server = http.createServer(async (req, res) => {
   const reqPath = req.url.split('?')[0];
-  if (['/clear-sessions', '/import', '/agent', '/stats'].includes(reqPath) && !isAuthorized(req)) {
+  if ((['/clear-sessions', '/import', '/agent', '/stats'].includes(reqPath) || reqPath.startsWith('/api/')) && !isAuthorized(req)) {
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Unauthorized. Set ADMIN_KEY in Render env vars and open the URL with ?key=YOUR_ADMIN_KEY' }));
     return;
   }
-  if (reqPath === '/health' || reqPath === '/') {
+  if (reqPath === '/' || reqPath === '/dashboard') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(dashboardHtml);
+  } else if (reqPath.startsWith('/api/')) {
+    await handleApi(req, res, reqPath);
+  } else if (reqPath === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', uptime: process.uptime(), bot: global.botStatus || 'starting', timestamp: new Date().toISOString(), instanceId: global.instanceId || 'unknown' }));
   } else if (reqPath === '/clear-sessions' && (req.method === 'GET' || req.method === 'POST')) {
@@ -211,6 +367,8 @@ function enqueueMessage(msg) {
   if (!jid) return;
   const run = () => handleMessage(msg).catch(err => console.error(`[${instanceId}] Error handling message:`, err));
   if (msg.key.fromMe) { run(); return; } // owner's own messages must never wait behind a bot reply
+  if (global.botPaused) { console.log(`⏸ Paused - ignoring message from ${jid.split('@')[0]}`); return; }
+  global.stats.received++;
   jidPending.set(jid, (jidPending.get(jid) || 0) + 1);
   const prev = jidChains.get(jid) || Promise.resolve();
   const next = prev.then(run).finally(() => {
@@ -255,6 +413,15 @@ async function startBot() {
       }
     }
     
+    // Only auto-connect when this bot is already linked to WhatsApp. A new link (and the code WhatsApp sends to your phone)
+    // only happens when you tap "Connect WhatsApp" in the dashboard (or set AUTO_PAIR=true).
+    if (!isLinked() && process.env.AUTO_PAIR !== 'true' && !global.manualConnect) {
+      global.botStatus = 'not-linked';
+      console.log('🔗 Not linked to WhatsApp yet. Open the dashboard and tap "Connect WhatsApp". No code is requested automatically.');
+      isStarting = false;
+      return;
+    }
+
     agentManager = await getAgentManager(memory, null);
     const { version } = await fetchLatestBaileysVersion();
     console.log(`📦 Baileys version: ${version.join('.')} [${instanceId}]`);
@@ -272,10 +439,10 @@ async function startBot() {
     global.sockRef = sock;
     agentManager.sock = sock;
 
-    if (!auth.state.creds.registered && config.phoneNumber && !pairingCodeRequested) {
+    if (process.env.AUTO_PAIR === 'true' && !isLinked() && config.phoneNumber && !pairingCodeRequested) {
       setTimeout(async () => {
         try {
-          if (!auth.state.creds.registered) {
+          if (!isLinked()) {
             console.log(`\n📱 [${instanceId}] Requesting pairing code for ${config.phoneNumber}...`);
             const code = await sock.requestPairingCode(config.phoneNumber);
             console.log('\n' + '█'.repeat(60));
@@ -287,7 +454,7 @@ async function startBot() {
           console.error(`❌ [${instanceId}] Pairing code failed:`, err.message);
           pairingCodeRequested = false;
           isStarting = false;
-          reconnectTimeout = setTimeout(() => { if (!auth.state.creds.registered) startBot(); }, 15000);
+          reconnectTimeout = setTimeout(() => { if (!isLinked()) startBot(); }, 15000);
         }
       }, 3000);
     }
@@ -308,6 +475,9 @@ async function startBot() {
         if (statusCode === DisconnectReason.loggedOut) {
           console.log(`🚪 [${instanceId}] Logged out - clearing auth state, need re-pair`);
           if (auth.clearState) await auth.clearState();
+          global.manualConnect = false;
+          global.pairing = null;
+          global.botStatus = 'not-linked';
           isStarting = false;
           return;
         }
@@ -340,6 +510,7 @@ async function startBot() {
         console.log(`📞 [${instanceId}] As: ${sock.user?.id || 'unknown'}`);
         console.log(`📚 [${instanceId}] Import: /import | Agent: /agent | Natural language: ON | Time: ${config.timezone}`);
         global.botStatus = 'connected';
+        global.pairing = null;
         pairingCodeRequested = false;
         isStarting = false;
       } else if (connection === 'connecting') {
@@ -636,7 +807,7 @@ async function handleMessage(msg) {
     const count = await memory.getRateLimitCount(jid);
     if (count === config.maxPerHour + 1) {
       await delay(1000);
-      await sock.sendMessage(jid, { text: "Network dey slow small, I go reply you now 🙏" });
+      await sock.sendMessage(jid, { text: "Sorry, give me a minute and I'll reply you 🙏" });
     }
     return;
   }
@@ -646,7 +817,7 @@ async function handleMessage(msg) {
     await memory.setHandoff(jid, config.handoffMinutes);
     await memory.addMessage(jid, 'user', messageContent);
     await delayRandom();
-    await sock.sendMessage(jid, { text: `No wahala, make I call you back now now 🙏\n\n_Bot paused for ${config.handoffMinutes} mins_` });
+    await sock.sendMessage(jid, { text: `No worries, I'll get back to you shortly 🙏\n\n_Bot paused for ${config.handoffMinutes} mins_` });
     await memory.addMessage(jid, 'assistant', 'Handoff');
     return;
   }
@@ -820,6 +991,7 @@ async function handleMessage(msg) {
     }
 
     await sock.sendMessage(jid, { text: aiReply });
+    global.stats.replied++;
     console.log(`🤖 Assistant replied to ${contactName}: ${aiReply.slice(0,100)}...`);
     await memory.addMessage(jid, 'assistant', aiReply);
     
@@ -835,7 +1007,7 @@ async function handleMessage(msg) {
 
   } catch (err) {
     console.error(`Error replying to ${jid}:`, err);
-    try { await sock.sendMessage(jid, { text: "Omo network dey worry, I go reply you now 🙏" }); } catch {}
+    try { await sock.sendMessage(jid, { text: "Sorry, something went wrong on my side. I'll reply you shortly 🙏" }); } catch {}
   } finally {
     processingJids.delete(jid);
   }

@@ -79,3 +79,5 @@ services:
         value: false
       - key: AUTO_CLEAR_SESSIONS
         value: false
+      - key: AUTO_PAIR         # false = never request a WhatsApp code by itself; link from the dashboard instead
+        value: false

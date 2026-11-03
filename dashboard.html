@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Johnny Tech Dashboard</title>
+<style>
+  :root { --bg:#0d1117; --card:#161b22; --line:#262d36; --text:#e6edf3; --muted:#8b949e; --green:#25d366; --red:#f85149; --yellow:#e3b341; --blue:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; padding:14px; padding-bottom:40px; max-width:720px; margin:auto; }
+  h1 { font-size:20px; margin:4px 0 2px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
+  .card h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 10px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  .grow { flex:1; min-width:120px; }
+  .pill { display:inline-flex; align-items:center; gap:7px; padding:6px 12px; border-radius:999px; font-weight:600; font-size:14px; background:#222a33; }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--muted); }
+  .ok .dot { background:var(--green); box-shadow:0 0 8px var(--green); }
+  .warn .dot { background:var(--yellow); }
+  .bad .dot { background:var(--red); }
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:12px; }
+  .stat { background:#0f141a; border:1px solid var(--line); border-radius:10px; padding:10px 6px; text-align:center; }
+  .stat b { display:block; font-size:20px; }
+  .stat span { font-size:11px; color:var(--muted); }
+  button { background:#21262d; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:11px 14px; font-size:14px; font-weight:600; cursor:pointer; }
+  button.primary { background:var(--green); color:#04210f; border-color:var(--green); }
+  button.danger { background:#3a1518; border-color:#5b1f24; color:#ff8b85; }
+  button:disabled { opacity:.5; }
+  input, textarea { width:100%; background:#0f141a; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:11px; font-size:15px; font-family:inherit; }
+  label { font-size:12px; color:var(--muted); display:block; margin:8px 0 4px; }
+  .code { font-size:34px; letter-spacing:.12em; font-weight:800; text-align:center; background:#0f141a; border:2px dashed var(--green); border-radius:12px; padding:16px 8px; margin:12px 0 8px; color:var(--green); user-select:all; }
+  .steps { color:var(--muted); font-size:13px; line-height:1.55; }
+  .steps b { color:var(--text); }
+  #logs { background:#0a0e13; border:1px solid var(--line); border-radius:10px; height:300px; overflow:auto; padding:8px; font:12px/1.45 ui-monospace,Menlo,Consolas,monospace; }
+  .ln { white-space:pre-wrap; word-break:break-word; padding:2px 0; border-bottom:1px solid #141a21; }
+  .ln .t { color:#566170; margin-right:6px; }
+  .ln.error { color:#ff8b85; }
+  .ln.warn { color:var(--yellow); }
+  .tabs { display:flex; gap:6px; margin-bottom:8px; }
+  .tabs button { padding:7px 12px; font-size:13px; }
+  .tabs button.on { background:#2d333b; border-color:#444c56; }
+  .reply { margin-top:10px; padding:10px; background:#0f141a; border-left:3px solid var(--green); border-radius:6px; white-space:pre-wrap; font-size:14px; }
+  .kv { display:grid; grid-template-columns:120px 1fr; gap:6px 10px; font-size:13px; }
+  .kv div:nth-child(odd) { color:var(--muted); }
+  .hidden { display:none !important; }
+  .msg { font-size:13px; margin-top:8px; }
+  .msg.err { color:#ff8b85; } .msg.good { color:var(--green); }
+  a { color:var(--blue); }
+</style>
+</head>
+<body>
+
+<h1>🤖 Johnny Tech</h1>
+<div class="sub">WhatsApp assistant control panel</div>
+
+<!-- LOGIN -->
+<div id="login" class="card hidden">
+  <h2>Admin key</h2>
+  <div class="steps" style="margin-bottom:8px">Enter the <b>ADMIN_KEY</b> you set in Render (Environment).</div>
+  <input id="keyInput" type="password" placeholder="ADMIN_KEY" autocomplete="off">
+  <div class="row" style="margin-top:10px"><button class="primary grow" onclick="saveKey()">Open dashboard</button></div>
+  <div id="loginMsg" class="msg err"></div>
+</div>
+
+<div id="app" class="hidden">
+
+  <!-- STATUS -->
+  <div class="card">
+    <h2>Status</h2>
+    <div class="row" style="align-items:center;justify-content:space-between">
+      <div id="statusPill" class="pill"><span class="dot"></span><span id="statusText">Loading…</span></div>
+      <button id="pauseBtn" onclick="togglePause()">Pause bot</button>
+    </div>
+    <div id="statusNote" class="steps" style="margin-top:10px"></div>
+    <div class="stats">
+      <div class="stat"><b id="sRecv">0</b><span>received</span></div>
+      <div class="stat"><b id="sRepl">0</b><span>replied</span></div>
+      <div class="stat"><b id="sErr">0</b><span>errors</span></div>
+      <div class="stat"><b id="sUp">0</b><span>uptime</span></div>
+    </div>
+  </div>
+
+  <!-- CONNECT -->
+  <div id="connectCard" class="card hidden">
+    <h2>Connect WhatsApp</h2>
+    <div class="steps">No code is sent until you tap the button below.</div>
+    <label>Your WhatsApp number (with country code, no +)</label>
+    <input id="pairNumber" inputmode="numeric" placeholder="23276123456">
+    <div class="row" style="margin-top:10px"><button id="pairBtn" class="primary grow" onclick="getCode()">Get pairing code</button></div>
+    <div id="codeBox" class="hidden">
+      <div id="codeText" class="code">----</div>
+      <div class="steps">
+        On your phone: <b>WhatsApp → Settings → Linked devices → Link a device → Link with phone number instead</b>, then type this code. It expires in about <b id="codeTimer">2:00</b>.
+      </div>
+    </div>
+    <div id="pairMsg" class="msg"></div>
+  </div>
+
+  <!-- CONTROLS -->
+  <div class="card">
+    <h2>Controls</h2>
+    <div class="row">
+      <button class="grow" onclick="act('/api/restart','Restarting connection…')">🔄 Restart connection</button>
+      <button class="grow" onclick="fixMac()">🧹 Fix “Bad MAC”</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="grow" onclick="openPage('/import')">📥 Import chats / agent</button>
+      <button class="grow danger" onclick="logoutWA()">⏏ Log out WhatsApp</button>
+    </div>
+    <div id="ctlMsg" class="msg"></div>
+  </div>
+
+  <!-- TEST -->
+  <div class="card">
+    <h2>Test the AI (nothing is sent on WhatsApp)</h2>
+    <textarea id="testMsg" rows="2" placeholder="Type a message like a contact would, e.g. “hey bro how far”"></textarea>
+    <div class="row" style="margin-top:8px"><button class="primary grow" id="testBtn" onclick="testAI()">Send test</button></div>
+    <div id="testReply" class="reply hidden"></div>
+  </div>
+
+  <!-- LOGS -->
+  <div class="card">
+    <h2>Live logs</h2>
+    <div class="tabs">
+      <button id="tabAll" class="on" onclick="setFilter('all')">All</button>
+      <button id="tabErr" onclick="setFilter('error')">Errors</button>
+      <button onclick="copyLogs()">Copy</button>
+      <button onclick="clearView()">Clear view</button>
+    </div>
+    <div id="logs"></div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div class="card">
+    <h2>Settings (change in Render → Environment)</h2>
+    <div class="kv" id="settings"></div>
+  </div>
+</div>
+
+<script>
+var KEY = localStorage.getItem('adminKey') || '';
+var qs = new URLSearchParams(location.search);
+if (qs.get('key')) { KEY = qs.get('key'); localStorage.setItem('adminKey', KEY); history.replaceState(null, '', location.pathname); }
+
+var lastLogId = 0, logs = [], filter = 'all', timer = null, pairing = null, paused = false, pairTick = null;
+
+function $(id) { return document.getElementById(id); }
+function api(path, opts) {
+  opts = opts || {};
+  opts.headers = Object.assign({ 'x-admin-key': KEY, 'Content-Type': 'application/json' }, opts.headers || {});
+  return fetch(path, opts).then(function (r) {
+    if (r.status === 401) { throw { auth: true }; }
+    return r.json().then(function (j) { if (!r.ok) throw { message: j.error || ('Error ' + r.status) }; return j; });
+  });
+}
+function showLogin(msg) {
+  $('app').classList.add('hidden'); $('login').classList.remove('hidden');
+  $('loginMsg').textContent = msg || '';
+  if (timer) { clearInterval(timer); timer = null; }
+}
+function saveKey() {
+  KEY = $('keyInput').value.trim();
+  localStorage.setItem('adminKey', KEY);
+  start();
+}
+function fmtUp(s) {
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s / 60) + 'm';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
+  return Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h';
+}
+function flash(id, text, good) {
+  var el = $(id); el.textContent = text; el.className = 'msg ' + (good ? 'good' : 'err');
+}
+
+function renderStatus(s) {
+  var pill = $('statusPill'), txt = $('statusText'), note = $('statusNote');
+  var cls = 'warn', label = s.status;
+  if (s.connected) { cls = 'ok'; label = 'Connected' + (s.number ? ' · +' + s.number : ''); note.textContent = 'Johnny Tech is online and replying.'; }
+  else if (s.status === 'not-linked') { cls = 'bad'; label = 'Not linked'; note.textContent = 'WhatsApp is not linked yet. Use “Connect WhatsApp” below.'; }
+  else if (/^disconnected|logged-out|error|conflict/.test(s.status)) { cls = 'bad'; label = 'Disconnected (' + s.status + ')'; note.textContent = 'The bot will try to reconnect by itself. If it stays red, tap Restart connection.'; }
+  else { label = s.status === 'connecting' ? 'Connecting…' : s.status; note.textContent = ''; }
+  if (s.paused) { note.textContent = '⏸ Bot is paused: incoming messages are NOT being answered. ' + note.textContent; }
+  pill.className = 'pill ' + cls; txt.textContent = label;
+  $('sRecv').textContent = s.stats.received; $('sRepl').textContent = s.stats.replied;
+  $('sErr').textContent = s.stats.errors; $('sUp').textContent = fmtUp(s.uptime);
+  paused = s.paused; $('pauseBtn').textContent = paused ? '▶ Resume bot' : '⏸ Pause bot';
+
+  var showConnect = !s.connected && (s.status === 'not-linked' || !s.linked);
+  $('connectCard').classList.toggle('hidden', !showConnect);
+  if (!$('pairNumber').value && s.phoneNumber) $('pairNumber').value = s.phoneNumber;
+  pairing = (!s.connected && s.pairing) ? s.pairing : null;
+  renderPairing();
+
+  var st = s.settings || {};
+  var rows = [
+    ['Owner', st.ownerName], ['Assistant', st.assistantName], ['Location', st.location],
+    ['Timezone', st.timezone], ['Reply speed', st.fastReplies ? 'Fast' : 'Human-like (slow)'],
+    ['AI providers', (st.ai && st.ai.length) ? st.ai.join(' → ') : 'none'],
+    ['Saved login', st.redis ? 'Yes (Upstash)' : 'NO – lost on every deploy'],
+    ['Reply limit', st.maxPerHour + ' / hour / contact']
+  ];
+  var kv = $('settings'); kv.innerHTML = '';
+  rows.forEach(function (r) { var a = document.createElement('div'); a.textContent = r[0]; var b = document.createElement('div'); b.textContent = r[1] == null ? '-' : r[1]; kv.appendChild(a); kv.appendChild(b); });
+}
+
+function renderPairing() {
+  if (pairTick) clearInterval(pairTick);
+  if (!pairing) { $('codeBox').classList.add('hidden'); return; }
+  $('codeBox').classList.remove('hidden');
+  $('codeText').textContent = pairing.code;
+  var update = function () {
+    var left = Math.max(0, 120 - Math.floor((Date.now() - pairing.at) / 1000));
+    $('codeTimer').textContent = Math.floor(left / 60) + ':' + ('0' + (left % 60)).slice(-2);
+  };
+  update(); pairTick = setInterval(update, 1000);
+}
+
+function renderLogs() {
+  var box = $('logs');
+  var atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  box.innerHTML = '';
+  logs.forEach(function (l) {
+    if (filter === 'error' && l.level !== 'error') return;
+    var d = document.createElement('div'); d.className = 'ln ' + l.level;
+    var t = document.createElement('span'); t.className = 't'; t.textContent = new Date(l.t).toLocaleTimeString();
+    d.appendChild(t); d.appendChild(document.createTextNode(l.msg)); box.appendChild(d);
+  });
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+function setFilter(f) { filter = f; $('tabAll').className = f === 'all' ? 'on' : ''; $('tabErr').className = f === 'error' ? 'on' : ''; renderLogs(); $('logs').scrollTop = $('logs').scrollHeight; }
+function clearView() { logs = []; renderLogs(); }
+function copyLogs() {
+  var text = logs.filter(function (l) { return filter === 'all' || l.level === 'error'; }).map(function (l) { return new Date(l.t).toLocaleTimeString() + ' ' + l.msg; }).join('\n');
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { flash('ctlMsg', 'Logs copied.', true); });
+}
+
+function poll() {
+  api('/api/status').then(renderStatus).catch(function (e) { if (e.auth) showLogin('Wrong or missing admin key.'); });
+  api('/api/logs?since=' + lastLogId).then(function (r) {
+    if (r.logs.length) { r.logs.forEach(function (l) { logs.push(l); lastLogId = Math.max(lastLogId, l.id); }); if (logs.length > 500) logs = logs.slice(-500); renderLogs(); }
+  }).catch(function () {});
+}
+function start() {
+  if (!KEY) { showLogin(''); return; }
+  api('/api/status').then(function (s) {
+    $('login').classList.add('hidden'); $('app').classList.remove('hidden');
+    renderStatus(s); poll();
+    if (!timer) timer = setInterval(poll, 3000);
+  }).catch(function (e) { if (e.auth) showLogin(KEY ? 'Wrong admin key, or ADMIN_KEY is not set in Render.' : ''); else showLogin(e.message || 'Cannot reach the bot.'); });
+}
+
+function getCode() {
+  var n = $('pairNumber').value.replace(/[^0-9]/g, '');
+  if (n.length < 7) { flash('pairMsg', 'Enter your number with country code, e.g. 23276123456', false); return; }
+  $('pairBtn').disabled = true; flash('pairMsg', 'Asking WhatsApp for a code… (about 10 seconds)', true);
+  api('/api/pair', { method: 'POST', body: JSON.stringify({ number: n }) }).then(function (r) {
+    pairing = r.pairing; renderPairing(); flash('pairMsg', 'Code ready. Enter it on your phone now.', true);
+  }).catch(function (e) { flash('pairMsg', e.message || 'Failed', false); }).then(function () { $('pairBtn').disabled = false; });
+}
+function act(path, msg) {
+  flash('ctlMsg', msg, true);
+  api(path, { method: 'POST', body: '{}' }).then(function (r) { flash('ctlMsg', r.message || 'Done.', true); setTimeout(poll, 1500); }).catch(function (e) { flash('ctlMsg', e.message || 'Failed', false); });
+}
+function logoutWA() {
+  if (!confirm('Log out WhatsApp? You will need to link again with a new code.')) return;
+  act('/api/logout', 'Logging out…');
+}
+function fixMac() {
+  flash('ctlMsg', 'Clearing old sessions…', true);
+  api('/clear-sessions').then(function (r) { flash('ctlMsg', r.message || 'Done.', true); }).catch(function (e) { flash('ctlMsg', e.message || 'Failed', false); });
+}
+function togglePause() {
+  api('/api/pause', { method: 'POST', body: JSON.stringify({ paused: !paused }) }).then(function () { poll(); }).catch(function (e) { flash('ctlMsg', e.message || 'Failed', false); });
+}
+function openPage(p) { location.href = p + '?key=' + encodeURIComponent(KEY); }
+function testAI() {
+  var m = $('testMsg').value.trim(); if (!m) return;
+  $('testBtn').disabled = true; var box = $('testReply'); box.classList.remove('hidden'); box.textContent = 'Thinking…';
+  api('/api/test', { method: 'POST', body: JSON.stringify({ message: m }) }).then(function (r) { box.textContent = r.reply; })
+    .catch(function (e) { box.textContent = 'Error: ' + (e.message || 'failed'); }).then(function () { $('testBtn').disabled = false; });
+}
+
+start();
+</script>
+</body>
+</html>
