@@ -79,5 +79,9 @@ services:
         value: false
       - key: AUTO_CLEAR_SESSIONS
         value: false
+      - key: SUMMARY_ENABLED   # nightly summary sent to your own WhatsApp
+        value: true
+      - key: SUMMARY_HOUR      # hour of day 0-23 in your TIMEZONE
+        value: 21
       - key: AUTO_PAIR         # false = never request a WhatsApp code by itself; link from the dashboard instead
         value: false
