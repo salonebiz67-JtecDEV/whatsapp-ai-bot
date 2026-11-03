@@ -274,6 +274,7 @@ export function getNigerianTimeContext() {
     const hour24 = parseInt(now.toLocaleString('en-US', { timeZone: config.timezone, hour: 'numeric', hour12: false }));
     const hour12 = now.toLocaleString('en-US', { timeZone: config.timezone, hour: 'numeric', hour12: true });
     const minute = now.toLocaleString('en-US', { timeZone: config.timezone, minute: '2-digit' });
+    const h12 = hour12.replace(/\s?[AP]M/i, '');
     
     let period = '';
     let greeting = '';
@@ -282,29 +283,29 @@ export function getNigerianTimeContext() {
     if (hour24 >= 0 && hour24 < 5) {
       period = 'late night / early morning (12am - 4:59am)';
       greeting = 'Hello';
-      greetingInstruction = `It's ${hour12}:${minute} AM - very late night/early morning. Use neutral "Hello" not time-specific greeting.`;
+      greetingInstruction = `It's ${h12}:${minute} AM - very late night/early morning. Use neutral "Hello" not time-specific greeting.`;
     } else if (hour24 >= 5 && hour24 < 12) {
       period = 'morning (5am - 11:59am)';
       greeting = 'Good morning';
-      greetingInstruction = `It's morning ${hour12}:${minute} AM. Use "Good morning".`;
+      greetingInstruction = `It's morning ${h12}:${minute} AM. Use "Good morning".`;
     } else if (hour24 >= 12 && hour24 < 16) {
       period = 'afternoon (12pm - 3:59pm)';
       greeting = 'Good afternoon';
-      greetingInstruction = `It's afternoon ${hour12}:${minute} PM. Use "Good afternoon".`;
+      greetingInstruction = `It's afternoon ${h12}:${minute} PM. Use "Good afternoon".`;
     } else if (hour24 >= 16 && hour24 < 19) {
       period = 'evening (4pm - 6:59pm)';
       greeting = 'Good evening';
-      greetingInstruction = `It's evening ${hour12}:${minute} PM. Use "Good evening".`;
+      greetingInstruction = `It's evening ${h12}:${minute} PM. Use "Good evening".`;
     } else {
       period = 'night (7pm - 11:59pm)';
       greeting = 'Good evening';
-      greetingInstruction = `It's night ${hour12}:${minute} PM. Use "Good evening".`;
+      greetingInstruction = `It's night ${h12}:${minute} PM. Use "Good evening".`;
     }
     
     return {
       full,
       hour24,
-      hour12: `${hour12}:${minute}`,
+      hour12: `${h12}:${minute}`,
       period,
       greeting,
       greetingInstruction,
@@ -330,10 +331,11 @@ export async function generateReply(jid, userMessage, history = [], ownerStyleSa
   const skipPreChecks = options.skipPreChecks || options.isAgentTask || false;
   const isInternalAgentPrompt = userMessage && (userMessage.includes('Goal for this contact:') || userMessage.includes('STRICT RULES:') || userMessage.includes('AGENT OUTREACH:'));
   
-  // 1. Identity question -> must disclose truthfully (skip for internal prompts)
+  // 1. Identity question -> the AI answers honestly in its own natural words (no canned line)
+  let identityAsked = false;
   if (!isInternalAgentPrompt && !skipPreChecks && isIdentityQuestion(userMessage)) {
-    console.log(`🔍 IDENTITY QUESTION from ${jid}: "${userMessage.slice(0,80)}" - DISCLOSING`);
-    return getDisclosureResponse();
+    console.log(`🔍 IDENTITY QUESTION from ${jid}: "${userMessage.slice(0,80)}" - will answer honestly`);
+    identityAsked = true;
   }
   
   // 2. Serious/personal/emotional/important -> auto handoff, don't reply as bot (skip for internal agent prompts)
@@ -362,17 +364,19 @@ export async function generateReply(jid, userMessage, history = [], ownerStyleSa
   const timeContext = getNigerianTimeContext();
   console.log(`⏰ Local time: ${timeContext.formatted}`);
   
-  // Disclosure frequency logic
-  const shouldDisclose = options.shouldDisclose || false;
-  const isForcedDisclosure = options.isForcedDisclosure || false; // Identity question
-  console.log(`📢 Disclosure check for ${jid}: shouldDisclose=${shouldDisclose}, forced=${isForcedDisclosure}, newContact=${!ownerStyleSamples || ownerStyleSamples.length === 0}`);
+  // Only announce "I'm an assistant" when someone asks, or on proactive agent outreach. Normal chats just reply naturally.
+  const isForcedDisclosure = identityAsked || options.isForcedDisclosure || false;
+  const shouldDisclose = isForcedDisclosure || (options.isAgentTask && options.shouldDisclose) || false;
+  console.log(`📢 Disclosure for ${jid}: forced=${isForcedDisclosure}, announce=${shouldDisclose}, newContact=${!ownerStyleSamples || ownerStyleSamples.length === 0}`);
 
-  // ===== YOUR ASSISTANT'S IDENTITY + RULES (edit via env vars: OWNER_NAME, ASSISTANT_NAME, PERSONA, GOALS, LANGUAGE_STYLE, CUSTOM_RULES) =====
+  // ===== YOUR ASSISTANT'S IDENTITY + RULES (env vars: OWNER_NAME, ASSISTANT_NAME, PERSONA, GOALS, LANGUAGE_STYLE, CUSTOM_RULES) =====
   const OWNER = config.ownerName;
   const BOT = config.assistantName;
-  const disclosureInstruction = shouldDisclose
-    ? `Include ONE short natural sentence saying you are ${BOT}, ${OWNER}'s AI assistant, then carry on helping.`
-    : `You already introduced yourself to this contact. Do NOT re-introduce yourself, just continue naturally.`;
+  const disclosureInstruction = isForcedDisclosure
+    ? `The contact is asking who/what you are. Answer honestly in your own natural words: you are ${BOT}, ${OWNER}'s personal AI assistant replying for ${OWNER}. Do not claim to be human or to be ${OWNER}.`
+    : shouldDisclose
+      ? `Include ONE short natural sentence saying you are ${BOT}, ${OWNER}'s assistant, then carry on.`
+      : `Don't announce what you are in greetings or normal chat: just reply naturally and warmly, like a personal assistant answering for ${OWNER}. Only if you can't answer something (personal, unknown, or needs ${OWNER}'s own decision), say you're ${BOT}, ${OWNER}'s personal assistant, and you'll let ${OWNER} know when he's back.`;
 
   const safeStyle = (ownerStyleSamples || []).filter(s => !containsFinancialLanguage(s, true) && !containsRomanticLanguage(s, true)).slice(-6);
 
@@ -390,7 +394,7 @@ ${config.goals}
 ${config.customRules ? `\nEXTRA RULES:\n${config.customRules}\n` : ''}
 CORE RULES (never break):
 1. Reply to every message. Never ignore anyone. Keep replies short (1-3 short lines) unless they ask for detail.
-2. Honesty: if anyone sincerely asks whether you are a bot, AI, human, or ${OWNER}, say plainly that you are ${BOT}, ${OWNER}'s AI assistant. Never claim to be human or to be ${OWNER}.
+2. Honesty: if anyone sincerely asks whether you are a bot, AI, human, or ${OWNER}, say plainly that you are ${BOT}, ${OWNER}'s AI assistant. Never claim to be human or to be ${OWNER}. Understand what the person means and reply to the actual message, never with canned or keyword-style replies.
 3. Never make promises, payments or commitments for ${OWNER}. Never share or ask for bank/account details or money. If money, legal or an urgent personal matter comes up, say you'll pass it to ${OWNER}.
 4. No romantic or flirty tone.
 5. If you don't know something, say so and offer to pass a message to ${OWNER}. Never invent facts about ${OWNER}.

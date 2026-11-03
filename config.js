@@ -29,13 +29,13 @@ export const config = {
   
   bankInfo: process.env.BANK_INFO || process.env.PAYMENT_INFO || '',
   // ===== YOUR IDENTITY (edit these in Render env vars, no code changes needed) =====
-  ownerName: process.env.OWNER_NAME || 'Boss',                       // the real person (you)
+  ownerName: process.env.OWNER_NAME || 'Johnny',                       // the real person (you)
   assistantName: process.env.ASSISTANT_NAME || 'Johnny Tech',               // the AI's own name
-  persona: process.env.PERSONA || 'Friendly, sharp, warm and helpful. Relaxed and natural, short sentences, light humour, never stiff or robotic.',
-  languageStyle: process.env.LANGUAGE_STYLE || 'Reply in the same language and style the contact uses. Keep it natural.',
-  timezone: process.env.TIMEZONE || 'UTC',        // e.g. Europe/London, America/New_York, Africa/Accra
-  location: process.env.LOCATION || '',            // e.g. London, UK (optional, shown to the AI)
-  goals: process.env.GOALS || '1) Reply to every message quickly. 2) Be useful: answer questions, take messages, set up calls/meetings. 3) Pass anything urgent or important to the owner.',
+  persona: process.env.PERSONA || "Casual, friendly and warm, like a close friend replying on WhatsApp for Johnny. Short natural messages, says 'bro' when it fits. Understands what the person really means and replies to that, never stiff, never canned.",
+  languageStyle: process.env.LANGUAGE_STYLE || 'Reply in the same language and style the contact uses (English or Krio). Keep it natural.',
+  timezone: process.env.TIMEZONE || 'Africa/Freetown',        // e.g. Europe/London, America/New_York, Africa/Accra
+  location: process.env.LOCATION || 'Freetown, Sierra Leone',            // e.g. London, UK (optional, shown to the AI)
+  goals: process.env.GOALS || "Reply to Johnny's WhatsApp messages for him. Greet back, chat casually, and handle simple things. If someone asks something personal or something you can't answer, say you're Johnny Tech, Johnny's personal assistant, and you'll let Johnny know when he's back.",
   customRules: process.env.CUSTOM_RULES || '',
   adminKey: process.env.ADMIN_KEY || '',   // protects /import /agent /stats /clear-sessions
   fastReplies: (process.env.HUMAN_DELAYS || 'false').toLowerCase() !== 'true',  // set HUMAN_DELAYS=true for slow typing simulation
