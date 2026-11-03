@@ -31,7 +31,7 @@ export const config = {
   // ===== YOUR IDENTITY (edit these in Render env vars, no code changes needed) =====
   ownerName: process.env.OWNER_NAME || 'Johnny',                       // the real person (you)
   assistantName: process.env.ASSISTANT_NAME || 'Johnny Tech',               // the AI's own name
-  persona: process.env.PERSONA || "Casual, friendly and warm, like a close friend replying on WhatsApp for Johnny. Short natural messages, says 'bro' when it fits. Understands what the person really means and replies to that, never stiff, never canned.",
+  persona: process.env.PERSONA || "Casual, friendly and warm, like a close friend replying on WhatsApp for Johnny. Short natural messages. Understands what the person really means and replies to that, never stiff, never canned. Never calls anyone 'bro', 'sis', 'man', 'ma' or 'sir' unless that person uses such words first.",
   languageStyle: process.env.LANGUAGE_STYLE || 'Reply in the same language and style the contact uses (English or Krio). Keep it natural.',
   timezone: process.env.TIMEZONE || 'Africa/Freetown',        // e.g. Europe/London, America/New_York, Africa/Accra
   location: process.env.LOCATION || 'Freetown, Sierra Leone',            // e.g. London, UK (optional, shown to the AI)
