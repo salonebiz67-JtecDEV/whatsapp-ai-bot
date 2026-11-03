@@ -5,7 +5,7 @@ import http from 'http';
 import { config, validateConfig } from './config.js';
 import { createAuthState } from './auth.js';
 import { getMemoryStore } from './memory.js';
-import { generateReply, isHandoffRequest, parseOwnerCommand, getOwnerHelpText, getNigerianTimeContext } from './ai.js';
+import { RELATIONSHIP_OPTIONS, generateReply, isHandoffRequest, parseOwnerCommand, getOwnerHelpText, getNigerianTimeContext } from './ai.js';
 import { extractOwnerStyleFromExport } from './import.js';
 import fs from 'fs';
 import { trackChat } from './chats.js';
@@ -95,12 +95,23 @@ function isLinked() {
   return !!(c && (c.registered || c.account || (c.me && c.me.name && c.me.name !== '~')));
 }
 
-async function chatState(mem, jid) {
-  if (global.botPaused) return 'paused';
+// WhatsApp profile pictures (cached on the server so the dashboard loads fast)
+const avatarCache = new Map();
+async function getAvatar(jid) {
+  const c = avatarCache.get(jid);
+  if (c && Date.now() - c.ts < (c.none ? 60 * 60 * 1000 : 6 * 60 * 60 * 1000)) return c;
+  if (!sock || global.botStatus !== 'connected') return c || null;
+  let entry = { none: true, ts: Date.now() };
   try {
-    const [handoff, ownerActive] = await Promise.all([mem.isHandoff(jid), mem.isOwnerRecentlyActive(jid, config.ownerTakeoverPauseMinutes || 5)]);
-    return (handoff || ownerActive) ? 'human' : 'bot';
-  } catch { return 'bot'; }
+    const url = await sock.profilePictureUrl(jid, 'preview');
+    if (url) {
+      const r = await fetch(url);
+      if (r.ok) entry = { buf: Buffer.from(await r.arrayBuffer()), type: r.headers.get('content-type') || 'image/jpeg', ts: Date.now() };
+    }
+  } catch {}
+  if (avatarCache.size > 300) avatarCache.delete(avatarCache.keys().next().value);
+  avatarCache.set(jid, entry);
+  return entry;
 }
 
 async function handleApi(req, res, reqPath) {
@@ -133,14 +144,17 @@ async function handleApi(req, res, reqPath) {
     if (reqPath === '/api/chats') {
       const mem = await getMemoryStore();
       const list = (await mem.listContacts()).slice(0, 60);
-      const chats = await Promise.all(list.map(async c => ({
+      const profiles = await mem.listContactProfiles();
+      const chats = list.map(c => ({
         jid: c.jid,
         number: c.jid.endsWith('@s.whatsapp.net') ? c.jid.split('@')[0] : '',
         name: (global.contactNames.get(c.jid)) || c.name || (c.jid.endsWith('@s.whatsapp.net') ? '+' + c.jid.split('@')[0] : 'Unknown contact'),
         last: c.last, role: c.role, ts: c.ts, count: c.count,
-        state: await chatState(mem, c.jid)
-      })));
-      return sendJson(res, 200, { chats });
+        relationship: (profiles[c.jid] && profiles[c.jid].relationship) || '',
+        relationshipLabel: ((RELATIONSHIP_OPTIONS.find(r => profiles[c.jid] && r.id === profiles[c.jid].relationship)) || {}).label || '',
+        hasNotes: !!(profiles[c.jid] && profiles[c.jid].prompt)
+      }));
+      return sendJson(res, 200, { chats, paused: !!global.botPaused });
     }
     if (reqPath === '/api/chat') {
       const jid = new URL(req.url, 'http://localhost').searchParams.get('jid') || '';
@@ -152,9 +166,18 @@ async function handleApi(req, res, reqPath) {
         jid,
         number: jid.endsWith('@s.whatsapp.net') ? jid.split('@')[0] : '',
         name: (global.contactNames.get(jid)) || c.name || (jid.endsWith('@s.whatsapp.net') ? '+' + jid.split('@')[0] : 'Unknown contact'),
-        state: await chatState(mem, jid),
+        profile: (await mem.getContactProfile(jid)) || { relationship: '', prompt: '' },
+        options: RELATIONSHIP_OPTIONS.map(r => ({ id: r.id, label: r.label })),
         messages: await mem.getChatLog(jid)
       });
+    }
+    if (reqPath === '/api/avatar') {
+      const jid = new URL(req.url, 'http://localhost').searchParams.get('jid') || '';
+      if (!/^[0-9a-zA-Z@._-]{3,80}$/.test(jid)) return sendJson(res, 400, { error: 'Bad chat id' });
+      const av = await getAvatar(jid);
+      if (!av || av.none || !av.buf) return sendJson(res, 404, { error: 'No profile picture' });
+      res.writeHead(200, { 'Content-Type': av.type, 'Cache-Control': 'private, max-age=3600' });
+      return res.end(av.buf);
     }
     if (reqPath === '/api/logs') {
       const since = parseInt(new URL(req.url, 'http://localhost').searchParams.get('since') || '0', 10);
@@ -163,17 +186,18 @@ async function handleApi(req, res, reqPath) {
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'Use POST' });
     const body = await readBody(req);
 
-    if (reqPath === '/api/chat/pause') {
+    if (reqPath === '/api/contact') {
       const jid = String(body.jid || '');
       if (!/^[0-9a-zA-Z@._-]{3,80}$/.test(jid)) return sendJson(res, 400, { error: 'Bad chat id' });
+      const relationship = String(body.relationship || '');
+      if (relationship && !RELATIONSHIP_OPTIONS.some(r => r.id === relationship)) return sendJson(res, 400, { error: 'Unknown relationship' });
       const mem = await getMemoryStore();
-      if (body.paused) { await mem.setHandoff(jid, 60 * 24 * 7); console.log(`⏸ Bot paused for ${jid.split('@')[0]} from dashboard (7 days)`); }
-      else { await mem.clearHandoff(jid); await mem.clearOwnerActive(jid); console.log(`▶️ Bot resumed for ${jid.split('@')[0]} from dashboard`); }
-      return sendJson(res, 200, { ok: true, state: await chatState(mem, jid) });
+      const saved = await mem.setContactProfile(jid, { relationship, prompt: String(body.prompt || '') });
+      console.log(`📝 Saved contact settings for ${jid.split('@')[0]} (${relationship || 'no relationship'}${saved.prompt ? ', custom instructions' : ''})`);
+      return sendJson(res, 200, { ok: true, profile: saved });
     }
     if (reqPath === '/api/pause') {
-      global.botPaused = !!body.paused;
-      console.log(global.botPaused ? '⏸ Bot PAUSED from dashboard' : '▶️ Bot RESUMED from dashboard');
+      await setPaused(!!body.paused);
       return sendJson(res, 200, { ok: true, paused: global.botPaused });
     }
     if (reqPath === '/api/restart') {
@@ -415,6 +439,33 @@ global.instanceId = instanceId;
 const processingJids = new Set();
 const recentlyProcessed = new Map(); // jid -> timestamp to debounce duplicate decrypts
 
+async function setPaused(v) {
+  global.botPaused = !!v;
+  try { const mem = await getMemoryStore(); await mem.setBotPaused(!!v); } catch {}
+  console.log(global.botPaused ? '⏸ Bot PAUSED (stays paused until YOU resume it)' : '▶️ Bot RESUMED');
+}
+
+async function notifyOwner(text) {
+  try {
+    if (!sock || global.botStatus !== 'connected') return;
+    await sock.sendMessage(`${config.phoneNumber}@s.whatsapp.net`, { text });
+  } catch (e) { console.warn('notifyOwner failed: ' + e.message); }
+}
+
+// While paused the bot does not reply, but it still saves what people send so you can read it in the Chats tab.
+async function logWhilePaused(msg) {
+  try {
+    const jid = msg.key.remoteJid;
+    if (!jid || jid === 'status@broadcast' || jid.endsWith('@g.us') || jid.endsWith('@newsletter')) return;
+    const { text, mediaInfo } = await extractContent(msg);
+    const t = text || (mediaInfo ? `[${mediaInfo.type}]` : '');
+    if (!t) return;
+    global.stats.received++;
+    trackChat(jid, { name: msg.pushName, role: 'contact', text: t, ts: Number(msg.messageTimestamp || 0) * 1000 });
+    console.log(`⏸ Paused: saved message from ${jid.split('@')[0]} without replying`);
+  } catch {}
+}
+
 // Each chat has its own queue (messages inside a chat are answered in order, different chats run in parallel).
 // If several messages from one person are waiting, only the LAST one gets a reply (it sees all of them in history).
 const jidChains = new Map();
@@ -424,7 +475,7 @@ function enqueueMessage(msg) {
   if (!jid) return;
   const run = () => handleMessage(msg).catch(err => console.error(`[${instanceId}] Error handling message:`, err));
   if (msg.key.fromMe) { run(); return; } // owner's own messages must never wait behind a bot reply
-  if (global.botPaused) { console.log(`⏸ Paused - ignoring message from ${jid.split('@')[0]}`); return; }
+  if (global.botPaused) { logWhilePaused(msg); return; }
   global.stats.received++;
   jidPending.set(jid, (jidPending.get(jid) || 0) + 1);
   const prev = jidChains.get(jid) || Promise.resolve();
@@ -450,6 +501,7 @@ async function startBot() {
     console.log(`🚀 WhatsApp AI Bot - Ghost + Style + Import + Media + SUPER AGENT [${instanceId}]`);
     console.log('='.repeat(60));
     memory = await getMemoryStore();
+    try { global.botPaused = await memory.getBotPaused(); if (global.botPaused) console.log('⏸ Bot is PAUSED (saved setting). Tap Resume on the dashboard Home screen to turn it back on.'); } catch {}
     auth = await createAuthState();
     
     // Auto-clear old corrupted sessions that cause Bad MAC - one time fix
@@ -651,6 +703,7 @@ async function handleMessage(msg) {
   if (isFromMe) {
     // ===== SELF-CHAT SUPER INTELLIGENT AGENT =====
     if (isSelfChat) {
+      if (messageContent && /^(🙋 \*Needs you\*|📋 \*Daily summary|⚠️ \*Handoff Alert\*)/.test(messageContent)) return; // the bot's own notification
       // 1. Handle contact sharing (vCard)
       if (mediaInfo && mediaInfo.type === 'contact') {
         const numbers = mediaInfo.numbers || [];
@@ -713,17 +766,16 @@ async function handleMessage(msg) {
         const lowerSelf = messageContent.toLowerCase().trim();
         if (['away', 'i am away', "i'm away", 'brb', 'busy', 'go away', 'enable bot', 'bot on', 'assistant on'].includes(lowerSelf) || lowerSelf.startsWith('away ') || lowerSelf === 'away mode on') {
           try {
-            await memory.setGlobalAwayMode(true);
-            await sock.sendMessage(jid, { text: `🌙 Away mode ON — assistant will handle casual messages while you're away.\n\nIt will:\n• Disclose it's assistant on first reply to each contact\n• Handle only light small talk\n• Auto-handoff serious/personal/financial topics to you\n• Stay quiet for 10m after you reply in a chat\n\nText "back" when you're back to make it quiet again.` });
+            await setPaused(false);
+            await sock.sendMessage(jid, { text: `▶️ Assistant is ON. It replies to your contacts until you send "back" here or tap Pause on the dashboard.` });
             console.log(`🌙 Owner set AWAY mode via self-chat: ${messageContent}`);
           } catch {}
           return;
         }
         if (['back', 'i am back', "i'm back", 'i am online', 'online', 'i am here', 'back online', 'disable bot', 'bot off', 'assistant off', 'pause all', 'quiet'].includes(lowerSelf) || lowerSelf.startsWith('back ') || lowerSelf === 'away mode off') {
           try {
-            await memory.setGlobalAwayMode(false);
-            await memory.setGlobalOwnerActive();
-            await sock.sendMessage(jid, { text: `✅ Back mode — assistant now QUIET.\n\nIt will NOT auto-reply while you're actively on WhatsApp. It will only reply if you haven't sent a message in a chat within last ${config.ownerTakeoverPauseMinutes || 10}m.\n\nText "away" when you want it active again.` });
+            await setPaused(true);
+            await sock.sendMessage(jid, { text: `⏸ Assistant PAUSED. It will not reply to anyone until you send "away" here or tap Resume on the dashboard.` });
             console.log(`✅ Owner set BACK mode via self-chat: ${messageContent}`);
           } catch {}
           return;
@@ -742,11 +794,7 @@ async function handleMessage(msg) {
     // Not self-chat, but owner messaging someone else - learn style + TAKE OVER
     // CRITICAL: When YOU (real owner) reply, bot must STOP and not interfere with already-handled chat
     try {
-      await memory.setOwnerActive(jid);
-      await memory.setGlobalOwnerActive();
-      const pauseMins = config.ownerTakeoverPauseMinutes || 10;
-      await memory.setHandoff(jid, pauseMins);
-      console.log(`👑 Owner took over ${contactName} (${jid}) - pausing bot for ${pauseMins}m to avoid double reply`);
+      console.log(`👤 You replied to ${contactName} yourself. The bot is NOT paused automatically (use the Pause button on Home if you want it quiet).`);
       // If there was an active agent task, pause it too - owner is handling manually
       if (agentManager) {
         try {
@@ -778,56 +826,6 @@ async function handleMessage(msg) {
 
   if (!messageContent && !mediaInfo) return;
 
-  // ===== OWNER TAKEOVER CHECK - Don't reply if owner recently active (10-15 min window) + Global Away Mode =====
-  try {
-    const globalAway = await memory.getGlobalAwayMode();
-    const ownerLastActive = await memory.getOwnerLastActive(jid);
-    const globalLastActive = await memory.getGlobalOwnerActive();
-    const pauseMins = config.ownerTakeoverPauseMinutes || 10;
-    
-    // Global away mode: if owner set "back" (away=false), bot should be extra quiet
-    if (globalAway === false) {
-      // Owner said "back" - bot should stay quiet unless owner inactive for pauseMins
-      // Check per-chat first
-      if (ownerLastActive) {
-        const minsSince = (Date.now() - ownerLastActive) / 60000;
-        if (minsSince < pauseMins) {
-          console.log(`⏸️ Skipping ${contactName} (${jid}) - Owner BACK mode + YOU replied ${minsSince.toFixed(1)}m ago in this chat, bot quiet for ${pauseMins}m`);
-          const historyText = messageContent || (mediaInfo ? `[${mediaInfo.type}]` : '');
-          if (historyText) await memory.addMessage(jid, 'user', historyText);
-          return;
-        }
-      }
-      // Also check global activity - if owner active anywhere within 5 min, stay quiet for all
-      if (globalLastActive) {
-        const globalMinsSince = (Date.now() - globalLastActive) / 60000;
-        if (globalMinsSince < 5) {
-          console.log(`⏸️ Skipping ${contactName} - Owner BACK mode + YOU active globally ${globalMinsSince.toFixed(1)}m ago, bot quiet (you're on WhatsApp)`);
-          const historyText = messageContent || (mediaInfo ? `[${mediaInfo.type}]` : '');
-          if (historyText) await memory.addMessage(jid, 'user', historyText);
-          return;
-        }
-      }
-    } else {
-      // Away mode ON or not set - use per-chat inactivity window (10 min)
-      if (ownerLastActive) {
-        const minsSince = (Date.now() - ownerLastActive) / 60000;
-        if (minsSince < pauseMins) {
-          console.log(`⏸️ Skipping ${contactName} (${jid}) - YOU replied ${minsSince.toFixed(1)}m ago in this chat, bot paused for ${pauseMins}m to avoid competing`);
-          const historyText = messageContent || (mediaInfo ? `[${mediaInfo.type}]` : '');
-          if (historyText) await memory.addMessage(jid, 'user', historyText);
-          return;
-        }
-        if (msg.messageTimestamp) {
-          const msgTime = Number(msg.messageTimestamp) * 1000;
-          if (msgTime < ownerLastActive - 5000) {
-            console.log(`⏸️ Skipping OLD message from ${contactName} - msg at ${new Date(msgTime).toLocaleTimeString()} older than your reply at ${new Date(ownerLastActive).toLocaleTimeString()}. Already handled.`);
-            return;
-          }
-        }
-      }
-    }
-  } catch (e) { console.error('Owner active check error:', e.message); }
 
   // Debounce duplicate decrypts (Baileys sometimes fires same message twice)
   const msgId = msg.key.id;
@@ -887,12 +885,12 @@ async function handleMessage(msg) {
 
   if (messageContent && isHandoffRequest(messageContent)) {
     console.log(`🙋 Handoff by ${jid}`);
-    await memory.setHandoff(jid, config.handoffMinutes);
     await memory.addMessage(jid, 'user', messageContent);
     await delayRandom();
-    await sock.sendMessage(jid, { text: `No worries, I'll get back to you shortly 🙏\n\n_Bot paused for ${config.handoffMinutes} mins_` });
+    await sock.sendMessage(jid, { text: "No worries, I'll get back to you shortly 🙏" });
     await memory.addMessage(jid, 'assistant', 'Handoff');
     trackChat(jid, { role: 'bot', text: "No worries, I'll get back to you shortly 🙏" });
+    notifyOwner(`🙋 *Needs you*\n\n${contactName} (+${jid.split('@')[0]}) asked to talk to you directly:\n"${(messageContent || '').slice(0, 200)}"`);
     return;
   }
 
@@ -1010,16 +1008,8 @@ async function handleMessage(msg) {
       shouldDisclose = false;
     }
     
-    const aiReply = await generateReply(jid, finalMessageForAI, history.slice(0, -1), ownerStyleTexts, mediaForAI, { shouldDisclose, isForcedDisclosure });
-
-    // FINAL CHECK: Did owner reply while AI was generating? If yes, abort to avoid double reply
-    try {
-      if (await memory.isOwnerRecentlyActive(jid, 2)) {
-        console.log(`⏸️ Aborting reply to ${contactName} - YOU became active during AI generation, skipping to avoid double reply`);
-        await sock.sendPresenceUpdate('paused', jid);
-        return;
-      }
-    } catch {}
+    const aiMeta = {};
+    const aiReply = await generateReply(jid, finalMessageForAI, history.slice(0, -1), ownerStyleTexts, mediaForAI, { shouldDisclose, isForcedDisclosure, meta: aiMeta });
 
     // ===== HUMAN-LIKE TYPING: Duration matches message length =====
     // Only show typing indicator AFTER we have reply, and for duration matching length
@@ -1040,7 +1030,6 @@ async function handleMessage(msg) {
       
       // Set handoff to pause bot for this contact
       try {
-        await memory.setHandoff(jid, config.handoffMinutes || 120);
         await memory.clearLastDisclosure(jid); // Next reply after handoff should disclose again
       } catch {}
       
@@ -1055,7 +1044,9 @@ async function handleMessage(msg) {
       // Notify owner via self-chat
       try {
         const ownerJid = `${config.phoneNumber}@s.whatsapp.net`;
-        const notifyMsg = `⚠️ *Handoff Alert*\n\nContact: ${contactName} (${jid.split('@')[0]})\nReason: ${reason}\nLast message: "${(messageContent || '').slice(0,200)}"\n\nBot paused for ${config.handoffMinutes}m. Please reply directly — this sounds important/personal.\n\n_This contact needs YOU, not assistant._`;
+        const notifyMsg = `⚠️ *Handoff Alert*\n\nContact: ${contactName} (${jid.split('@')[0]})\nReason: ${reason}\nLast message: "${(messageContent || '').slice(0,200)}"
+
+Please reply directly, this sounds important/personal.\n\n_This contact needs YOU, not assistant._`;
         await sock.sendMessage(ownerJid, { text: notifyMsg });
         console.log(`🔔 Owner notified about handoff for ${jid}`);
       } catch (e) {
@@ -1072,6 +1063,7 @@ async function handleMessage(msg) {
     await memory.addMessage(jid, 'assistant', aiReply);
     recordExchange({ jid, name: contactName, incoming: messageContent, reply: aiReply });
     trackChat(jid, { role: 'bot', text: aiReply });
+    if (aiMeta.needsOwner) notifyOwner(`🙋 *Needs you*\n\n${contactName} (+${jid.split('@')[0]}) asked:\n"${(messageContent || '').slice(0, 220)}"\n\n${config.assistantName} told them you'll get back to them.`);
     
     // Track disclosure if this reply included disclosure
     if (shouldDisclose) {
@@ -1355,7 +1347,6 @@ async function handleAgentReply(jid, messageContent, mediaInfo, task) {
       const handoffMsg = aiReply.replace('__HANDOFF__', '').split('__REASON__')[0].trim();
       await sock.sendMessage(jid, { text: handoffMsg });
       await memory.addMessage(jid, 'assistant', handoffMsg);
-      await memory.setHandoff(jid, 120);
       await memory.clearLastDisclosure(jid); // Next reply should disclose after handoff
       console.log(`⚠️ Agent handoff for ${jid}`);
       try {

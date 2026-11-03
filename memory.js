@@ -413,6 +413,65 @@ class MemoryStore {
     }
   }
 
+  // ---------- PER-CONTACT PROFILE (relationship + your own instructions) + BOT ON/OFF SWITCH ----------
+  async getContactProfile(jid) {
+    try {
+      if (this.isRedis) {
+        const raw = await this.redis.hget('contacts:profile', jid);
+        return raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
+      }
+      const file = path.join(this.localDir, 'contacts_profile.json');
+      const all = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : {};
+      return all[jid] || null;
+    } catch (e) { console.warn('getContactProfile error:', e.message); return null; }
+  }
+
+  async setContactProfile(jid, profile) {
+    try {
+      const clean = { relationship: profile.relationship || '', prompt: (profile.prompt || '').slice(0, 1200), updated: Date.now() };
+      if (this.isRedis) {
+        await this.redis.hset('contacts:profile', { [jid]: JSON.stringify(clean) });
+      } else {
+        const file = path.join(this.localDir, 'contacts_profile.json');
+        const all = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : {};
+        all[jid] = clean;
+        fs.writeFileSync(file, JSON.stringify(all));
+      }
+      return clean;
+    } catch (e) { console.warn('setContactProfile error:', e.message); throw e; }
+  }
+
+  async listContactProfiles() {
+    try {
+      let obj = {};
+      if (this.isRedis) obj = (await this.redis.hgetall('contacts:profile')) || {};
+      else {
+        const file = path.join(this.localDir, 'contacts_profile.json');
+        obj = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : {};
+      }
+      const out = {};
+      for (const [k, v] of Object.entries(obj)) out[k] = typeof v === 'string' ? JSON.parse(v) : v;
+      return out;
+    } catch (e) { console.warn('listContactProfiles error:', e.message); return {}; }
+  }
+
+  async getBotPaused() {
+    try {
+      if (this.isRedis) return String(await this.redis.get('bot:paused')) === '1';
+      return fs.existsSync(path.join(this.localDir, 'bot_paused'));
+    } catch { return false; }
+  }
+
+  async setBotPaused(paused) {
+    try {
+      if (this.isRedis) { if (paused) await this.redis.set('bot:paused', '1'); else await this.redis.del('bot:paused'); }
+      else {
+        const f = path.join(this.localDir, 'bot_paused');
+        if (paused) fs.writeFileSync(f, '1'); else if (fs.existsSync(f)) fs.unlinkSync(f);
+      }
+    } catch (e) { console.warn('setBotPaused error:', e.message); }
+  }
+
   // ---------- CONTACT INDEX + CHAT LOG (powers the dashboard Chats tab) ----------
   async touchContact(jid, patch) {
     try {

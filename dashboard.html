@@ -66,10 +66,24 @@
   .heroicon svg { width:28px; height:28px; stroke:var(--accent); fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
   .hero b { font-size:17px; display:block; }
 
+  /* ---------- big pause button ---------- */
+  .bigpause { width:100%; min-height:96px; border:none; border-radius:22px; display:flex; align-items:center; gap:16px; padding:16px 20px; margin-bottom:14px; cursor:pointer; text-align:left; font-family:inherit; color:#04201b; background:linear-gradient(135deg,#1ee3c0,#12b79d); box-shadow:0 10px 28px rgba(25,211,176,.35); }
+  .bigpause.paused { background:linear-gradient(135deg,#ffc247,#f08a00); color:#2b1a00; box-shadow:0 10px 28px rgba(245,165,36,.35); }
+  .bigpause .bpi { width:54px; height:54px; border-radius:50%; background:rgba(0,0,0,.14); display:flex; align-items:center; justify-content:center; font-size:26px; flex:none; }
+  .bigpause b { display:block; font-size:21px; }
+  .bigpause small { font-size:13px; opacity:.8; }
+  .banner { background:var(--amberBg); color:var(--amber); border-radius:12px; padding:10px 12px; font-size:13px; margin-bottom:12px; }
+  .badge.rel { background:var(--card2); color:var(--accent); }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:6px; }
+  .chip { background:var(--card2); border:1px solid var(--line); color:var(--text); border-radius:999px; padding:9px 14px; font-size:14px; font-weight:600; cursor:pointer; font-family:inherit; }
+  .chip.on { background:var(--accent); color:var(--accentText); border-color:transparent; }
+  .sheet { position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:50; display:flex; align-items:flex-end; }
+  .sheetbox { width:100%; max-height:88%; overflow-y:auto; background:var(--bg2); border-radius:22px 22px 0 0; padding:18px 16px calc(20px + env(safe-area-inset-bottom)); }
+
   /* ---------- chats list ---------- */
   .chat { display:flex; gap:12px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:18px; padding:14px; margin-bottom:10px; cursor:pointer; box-shadow:var(--shadow); }
   .chat:active { background:var(--card2); }
-  .av { width:50px; height:50px; border-radius:50%; background:var(--bg); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-weight:800; color:var(--accent); font-size:17px; flex:none; }
+  .av { overflow:hidden; background-size:cover; background-position:center; width:50px; height:50px; border-radius:50%; background:var(--bg); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-weight:800; color:var(--accent); font-size:17px; flex:none; }
   .cbody { flex:1; min-width:0; }
   .crow { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
   .cname { font-weight:700; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -159,6 +173,10 @@
 
     <!-- HOME -->
     <section id="v-home" class="view on">
+      <button id="bigPause" class="bigpause" onclick="togglePause()">
+        <span class="bpi" id="bpIcon">⏸</span>
+        <span><b id="bpTitle">Bot is ON</b><small id="bpSub">Tap to pause</small></span>
+      </button>
       <div class="card">
         <div class="hero">
           <div class="heroicon"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3.2-6.9"/><path d="M21 4v5h-5"/><path d="M9 12l2 2 4-4"/></svg></div>
@@ -168,8 +186,7 @@
           </div>
         </div>
         <div class="row" style="margin-top:14px">
-          <button id="pauseBtn" class="btn grow" onclick="togglePause()">⏸ Pause bot</button>
-          <button class="btn grow" onclick="act('/api/restart','Restarting connection…')">🔄 Restart</button>
+          <button class="btn grow" onclick="act('/api/restart','Restarting connection…')">🔄 Restart connection</button>
         </div>
         <div id="homeMsg" class="msg"></div>
       </div>
@@ -187,6 +204,7 @@
     <!-- CHATS -->
     <section id="v-chats" class="view">
       <h2 class="h">Active conversations</h2>
+      <div id="pausedBanner" class="banner hidden">⏸ The bot is paused. New messages are saved here but not answered. Resume it on the Home screen.</div>
       <input id="chatSearch" placeholder="Search name, number or message…" oninput="renderChats()" style="margin-bottom:12px">
       <div id="chatList"></div>
     </section>
@@ -297,13 +315,26 @@
       <button class="iconbtn" onclick="closeChat()" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
       <div class="av" id="dAv">?</div>
       <div class="dtitle"><b id="dName">…</b><span id="dNum"></span></div>
-      <span id="dBadge" class="badge bot">BOT</span>
+      <button class="iconbtn" onclick="openSheet()" aria-label="Contact settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
     </div>
     <div id="msgs"></div>
     <div class="dfoot">
-      <button id="chatPauseBtn" class="btn grow" style="width:100%" onclick="toggleChatPause()">⏸ Pause bot for this chat</button>
-      <div class="small muted" style="margin-top:8px">To reply yourself, use WhatsApp on your phone. The bot steps aside automatically for a few minutes.</div>
+      <div class="small muted">Tap the ⚙ at the top to set who this person is to you and add your own instructions for them. To reply yourself, use WhatsApp on your phone.</div>
       <div id="chatMsg" class="msg"></div>
+    </div>
+  </div>
+
+  <!-- CONTACT SETTINGS SHEET -->
+  <div id="sheet" class="sheet hidden" onclick="if(event.target===this)closeSheet()">
+    <div class="sheetbox">
+      <div class="row between" style="margin-bottom:6px"><b id="shName" style="font-size:18px">Contact settings</b><button class="iconbtn" onclick="closeSheet()" aria-label="Close">✕</button></div>
+      <label>Who is this person to you?</label>
+      <div id="relChips" class="chips"></div>
+      <label>Your instructions for this person (optional)</label>
+      <textarea id="shPrompt" rows="5" maxlength="1200" placeholder="Example: She is my cousin Aminata. Talk softly, mix English and Krio. Don't discuss my work."></textarea>
+      <div class="small muted" style="margin-top:6px">Johnny Tech follows this when replying to this person. It can't switch off the safety rules (no money talk, honest if someone asks if it's a bot).</div>
+      <div class="row" style="margin-top:12px"><button class="btn primary grow" onclick="saveContact()">Save</button></div>
+      <div id="shMsg" class="msg"></div>
     </div>
   </div>
 
@@ -323,6 +354,8 @@ if (qs.get('key')) { KEY = qs.get('key'); localStorage.setItem('adminKey', KEY);
 
 var view = 'home', chats = [], openJid = null, openState = 'bot', lastLogId = 0, logs = [], filter = 'all';
 var pairing = null, pairTick = null, paused = false, timer = null, last = null;
+var relOptions = [], chatProfile = { relationship: '', prompt: '' }, selRel = '', chatsPaused = false;
+var avatarCache = {}, avatarPending = {}, avatarQueue = [], avatarActive = 0;
 
 function $(id) { return document.getElementById(id); }
 function api(path, opts) {
@@ -350,8 +383,26 @@ function initials(name) {
   return (p[0][0] + (p[1] ? p[1][0] : '')).toUpperCase();
 }
 function mk(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-function badge(state) {
-  var b = mk('span', 'badge ' + state, state === 'human' ? 'HUMAN' : state === 'paused' ? 'PAUSED' : 'BOT'); return b;
+/* ---------- WhatsApp profile pictures ---------- */
+function applyAv(el, url) { el.style.backgroundImage = 'url(' + url + ')'; el.textContent = ''; }
+function setAvatar(el, jid) {
+  var c = avatarCache[jid];
+  if (c && c.url) { applyAv(el, c.url); return; }
+  if (c && c.none && Date.now() - c.none < 600000) return;
+  if (avatarPending[jid]) { avatarPending[jid].push(el); return; }
+  avatarPending[jid] = [el]; avatarQueue.push(jid); pumpAvatars();
+}
+function pumpAvatars() {
+  while (avatarActive < 3 && avatarQueue.length) {
+    var jid = avatarQueue.shift(); avatarActive++;
+    (function (jid) {
+      fetch('/api/avatar?jid=' + encodeURIComponent(jid), { headers: { 'x-admin-key': KEY } })
+        .then(function (r) { if (!r.ok) throw new Error('none'); return r.blob(); })
+        .then(function (b) { var u = URL.createObjectURL(b); avatarCache[jid] = { url: u }; (avatarPending[jid] || []).forEach(function (el) { applyAv(el, u); }); })
+        .catch(function () { avatarCache[jid] = { none: Date.now() }; })
+        .then(function () { delete avatarPending[jid]; avatarActive--; pumpAvatars(); });
+    })(jid);
+  }
 }
 
 /* ---------- theme ---------- */
@@ -397,7 +448,12 @@ function renderStatus(s) {
   ['sRepl', 'dRepl'].forEach(function (i) { $(i).textContent = s.stats.replied; });
   ['sErr', 'dErr'].forEach(function (i) { $(i).textContent = s.stats.errors; });
   $('sUp').textContent = fmtUp(s.uptime);
-  paused = s.paused; $('pauseBtn').textContent = paused ? '▶ Resume bot' : '⏸ Pause bot';
+  paused = s.paused;
+  var bp = $('bigPause'); bp.className = 'bigpause' + (paused ? ' paused' : '');
+  $('bpIcon').textContent = paused ? '▶' : '⏸';
+  $('bpTitle').textContent = paused ? 'Bot is PAUSED' : 'Bot is ON';
+  $('bpSub').textContent = paused ? 'Not replying to anyone. Tap to RESUME.' : 'Replying to your contacts. Tap to PAUSE.';
+  if (s.connected && paused) { $('statusPill').className = 'pill warn'; $('statusText').textContent = 'Paused'; }
 
   /* link view */
   var linkedAndUp = s.connected;
@@ -416,7 +472,7 @@ function renderStatus(s) {
   }
   var st = s.settings || {};
   fillKV('setIdentity', [['Owner', st.ownerName], ['Assistant', st.assistantName], ['Location', st.location], ['Timezone', st.timezone]]);
-  fillKV('setBehaviour', [['Reply speed', st.fastReplies ? 'Fast' : 'Human-like (slow)'], ['AI providers', (st.ai && st.ai.length) ? st.ai.join(' → ') : 'none'], ['Saved login', st.redis ? 'Yes (Upstash)' : 'NO – lost on every deploy'], ['Reply limit', st.maxPerHour + ' / hour / contact']]);
+  fillKV('setBehaviour', [['Reply speed', st.fastReplies ? 'Fast' : 'Human-like (slow)'], ['AI providers', (st.ai && st.ai.length) ? st.ai.join(' → ') : 'none'], ['Auto-pause', 'Never. Only you pause it'], ['Saved login', st.redis ? 'Yes (Upstash)' : 'NO – lost on every deploy'], ['Reply limit', st.maxPerHour + ' / hour / contact']]);
 }
 function fillKV(id, rows) {
   var kv = $(id); kv.innerHTML = '';
@@ -461,15 +517,16 @@ function openPage(p) { location.href = p + '?key=' + encodeURIComponent(KEY); }
 
 /* ---------- chats ---------- */
 function loadChats() {
-  return api('/api/chats').then(function (r) { chats = r.chats || []; $('dChats').textContent = chats.length; renderChats(); renderHomeChats(); }).catch(function (e) { if (e.auth) showLogin('Wrong admin key.'); });
+  return api('/api/chats').then(function (r) { chats = r.chats || []; chatsPaused = !!r.paused; $('pausedBanner').classList.toggle('hidden', !chatsPaused); $('dChats').textContent = chats.length; renderChats(); renderHomeChats(); }).catch(function (e) { if (e.auth) showLogin('Wrong admin key.'); });
 }
 function chatCard(c) {
   var card = mk('div', 'chat'); card.onclick = function () { openChat(c.jid); };
-  card.appendChild(mk('div', 'av', initials(c.name)));
+  var av = mk('div', 'av', initials(c.name)); card.appendChild(av); setAvatar(av, c.jid);
   var body = mk('div', 'cbody'), row = mk('div', 'crow');
   row.appendChild(mk('span', 'cname', c.name)); row.appendChild(mk('span', 'ctime', fmtTime(c.ts)));
   var prefix = c.role === 'bot' ? 'Bot: ' : c.role === 'owner' ? 'You: ' : '';
-  body.appendChild(row); body.appendChild(mk('div', 'cprev', prefix + (c.last || ''))); body.appendChild(badge(c.state));
+  body.appendChild(row); body.appendChild(mk('div', 'cprev', prefix + (c.last || '')));
+  if (c.relationshipLabel) body.appendChild(mk('span', 'badge rel', c.relationshipLabel.toUpperCase()));
   card.appendChild(body); return card;
 }
 function renderChats() {
@@ -488,34 +545,53 @@ function renderHomeChats() {
 function openChat(jid) {
   openJid = jid; $('chatDetail').classList.remove('hidden'); $('msgs').innerHTML = ''; $('chatMsg').textContent = '';
   var c = chats.filter(function (x) { return x.jid === jid; })[0];
-  if (c) { $('dName').textContent = c.name; $('dNum').textContent = c.number ? '+' + c.number : ''; $('dAv').textContent = initials(c.name); }
+  if (c) { $('dName').textContent = c.name; $('dNum').textContent = c.number ? '+' + c.number : ''; $('dAv').textContent = initials(c.name); $('dAv').style.backgroundImage = ''; setAvatar($('dAv'), jid); }
   loadChat(true);
 }
-function closeChat() { openJid = null; $('chatDetail').classList.add('hidden'); }
+function closeChat() { openJid = null; closeSheet(); $('chatDetail').classList.add('hidden'); }
 function loadChat(force) {
   if (!openJid) return;
   var jid = openJid;
   api('/api/chat?jid=' + encodeURIComponent(jid)).then(function (r) {
     if (jid !== openJid) return;
-    $('dName').textContent = r.name; $('dNum').textContent = r.number ? '+' + r.number : ''; $('dAv').textContent = initials(r.name);
-    openState = r.state; var b = $('dBadge'); b.className = 'badge ' + r.state; b.textContent = r.state === 'human' ? 'HUMAN' : r.state === 'paused' ? 'PAUSED' : 'BOT';
-    $('chatPauseBtn').textContent = (r.state === 'human' || r.state === 'paused') ? '▶ Resume bot for this chat' : '⏸ Pause bot for this chat';
+    $('dName').textContent = r.name; $('dNum').textContent = r.number ? '+' + r.number : '';
+    if (!$('dAv').style.backgroundImage) { $('dAv').textContent = initials(r.name); setAvatar($('dAv'), jid); }
+    relOptions = r.options || []; chatProfile = r.profile || { relationship: '', prompt: '' };
     var box = $('msgs'), atBottom = force || box.scrollHeight - box.scrollTop - box.clientHeight < 80;
     box.innerHTML = '';
     if (!r.messages.length) box.appendChild(mk('div', 'empty', 'No messages saved for this chat yet.'));
     r.messages.forEach(function (m) {
-      var b = mk('div', 'bub ' + m.role); b.appendChild(mk('span', 'who', m.role === 'bot' ? 'Bot' : m.role === 'owner' ? 'You' : ''));
-      if (m.role === 'contact') b.removeChild(b.firstChild);
+      var b = mk('div', 'bub ' + m.role);
+      if (m.role !== 'contact') b.appendChild(mk('span', 'who', m.role === 'bot' ? 'Bot' : 'You'));
       b.appendChild(document.createTextNode(m.text)); b.appendChild(mk('span', 'tm', fmtTime(m.ts))); box.appendChild(b);
     });
     if (atBottom) box.scrollTop = box.scrollHeight;
   }).catch(function (e) { if (e.auth) showLogin('Wrong admin key.'); else flash('chatMsg', e.message || 'Could not load chat', false); });
 }
-function toggleChatPause() {
-  if (!openJid) return; var want = !(openState === 'human' || openState === 'paused');
-  api('/api/chat/pause', { method: 'POST', body: JSON.stringify({ jid: openJid, paused: want }) }).then(function () {
-    flash('chatMsg', want ? 'Bot paused for this chat.' : 'Bot resumed for this chat.', true); loadChat(false); loadChats();
-  }).catch(function (e) { flash('chatMsg', e.message || 'Failed', false); });
+
+/* ---------- contact settings sheet ---------- */
+function renderChips() {
+  var box = $('relChips'); box.innerHTML = '';
+  relOptions.forEach(function (o) {
+    var c = mk('button', 'chip' + (selRel === o.id ? ' on' : ''), o.label);
+    c.onclick = function () { selRel = (selRel === o.id) ? '' : o.id; renderChips(); };
+    box.appendChild(c);
+  });
+}
+function openSheet() {
+  if (!openJid) return;
+  selRel = chatProfile.relationship || ''; $('shPrompt').value = chatProfile.prompt || '';
+  $('shName').textContent = $('dName').textContent; $('shMsg').textContent = '';
+  renderChips(); $('sheet').classList.remove('hidden');
+}
+function closeSheet() { $('sheet').classList.add('hidden'); }
+function saveContact() {
+  if (!openJid) return;
+  flash('shMsg', 'Saving…', true);
+  api('/api/contact', { method: 'POST', body: JSON.stringify({ jid: openJid, relationship: selRel, prompt: $('shPrompt').value }) }).then(function (r) {
+    chatProfile = r.profile; flash('shMsg', 'Saved ✓ Johnny Tech will use this for this person.', true); loadChats();
+    setTimeout(closeSheet, 900);
+  }).catch(function (e) { flash('shMsg', e.message || 'Failed', false); });
 }
 
 /* ---------- dashboard tools ---------- */

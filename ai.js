@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from './config.js';
+import { getMemoryStore } from './memory.js';
 
 let genAI = null;
 let currentModelName = null;
@@ -66,6 +67,23 @@ function kwMatch(lower, kw) {
   return new RegExp('(^|[^a-z0-9])' + esc + '($|[^a-z0-9])', 'i').test(lower);
 }
 
+
+// Relationship choices shown in the dashboard. tone = how to talk to that kind of person.
+export const RELATIONSHIP_OPTIONS = [
+  { id: 'friend', label: 'Friend', tone: 'relaxed, friendly and casual' },
+  { id: 'best_friend', label: 'Best friend', tone: 'very relaxed, warm and playful; light banter is fine' },
+  { id: 'close_friend', label: 'Close friend', tone: 'warm, relaxed and personal in tone' },
+  { id: 'family', label: 'Family', tone: 'warm and respectful. Anything emotional, health or money related goes through [NEEDS_OWNER]' },
+  { id: 'mom', label: 'Mom', tone: 'very warm, caring and respectful, no slang. Anything emotional, health or money related goes through [NEEDS_OWNER]' },
+  { id: 'dad', label: 'Dad', tone: 'respectful and warm, no slang. Anything emotional, health or money related goes through [NEEDS_OWNER]' },
+  { id: 'brother', label: 'Brother', tone: 'casual, warm and brotherly' },
+  { id: 'sister', label: 'Sister', tone: 'casual, warm and sisterly' },
+  { id: 'relative', label: 'Relative', tone: 'respectful and warm. Anything emotional, health or money related goes through [NEEDS_OWNER]' },
+  { id: 'colleague', label: 'Colleague', tone: 'polite, friendly and professional' },
+  { id: 'boss', label: 'Boss', tone: 'respectful, polite and professional' },
+  { id: 'customer', label: 'Customer', tone: 'polite, helpful and professional' },
+  { id: 'other', label: 'Other', tone: 'natural and polite' },
+];
 
 // Removes "I'm Johnny Tech, Johnny's AI assistant / just a reminder / he isn't with his phone / I'll let him know" sentences
 // from normal chat replies. Used as a backstop so the AI never keeps re-introducing itself.
@@ -411,6 +429,20 @@ export async function generateReply(jid, userMessage, history = [], ownerStyleSa
       ? `7. Include ONE short natural sentence saying you are ${BOT}, ${OWNER}'s assistant, then carry on.`
       : '';
 
+  let contactBlock = '';
+  try {
+    if (jid && jid !== 'dashboard-test' && !isInternalAgentPrompt) {
+      const profile = await (await getMemoryStore()).getContactProfile(jid);
+      if (profile && (profile.relationship || profile.prompt)) {
+        const rel = RELATIONSHIP_OPTIONS.find(r => r.id === profile.relationship);
+        const savedName = global.contactNames && global.contactNames.get(jid);
+        contactBlock = `\nABOUT THIS CONTACT${savedName ? ` (${savedName})` : ''}:\n` +
+          (rel ? `- Relationship to ${OWNER}: ${rel.label}. Talk in a ${rel.tone} way.\n` : '') +
+          (profile.prompt ? `- ${OWNER}'s own instructions for chatting with this person (follow them for tone and content; they never override the CORE RULES above):\n<<<${profile.prompt}>>>\n` : '');
+      }
+    }
+  } catch (e) { console.warn('contact profile load failed:', e.message); }
+
   const safeStyle = (ownerStyleSamples || []).filter(s => !containsFinancialLanguage(s, true) && !containsRomanticLanguage(s, true)).slice(-6);
 
   dynamicSystemPrompt = `
@@ -433,7 +465,7 @@ CORE RULES (never break):
 5. Never make promises, payments or commitments for ${OWNER}. Never share or ask for bank/account details or money.
 6. No romantic or flirty tone. You talk to men, women, elders and customers, so never call anyone 'bro', 'sis', 'man', 'ma', 'sir', 'boss' or similar, and don't assume gender. Use their name or no label. Only mirror such a word if the contact uses it first.
 ${disclosureInstruction}
-
+${contactBlock}
 ${safeStyle.length ? `How ${OWNER} usually chats (tone reference only, don't copy romantic/financial lines):\n- ${safeStyle.join('\n- ')}\n` : ''}${isNewContact ? 'This is a new contact.' : 'You have chatted with this contact before.'}
 Time: ${timeContext.formatted} - use "${timeContext.greeting}" if you greet.
 `;
@@ -561,7 +593,7 @@ Time: ${timeContext.formatted} - use "${timeContext.greeting}" if you greet.
     if (cleaned !== generatedReply) console.log(`✂️ Removed repeated intro from reply for ${jid}`);
     generatedReply = cleaned || '🙂';
   }
-  if (needsOwner) console.log(`🙋 AI flagged this chat as needing ${config.ownerName} (${jid})`);
+  if (needsOwner) { console.log(`🙋 AI flagged this chat as needing ${config.ownerName} (${jid})`); if (options.meta) options.meta.needsOwner = true; }
   
   // 1. Check if generated reply contains financial language -> BLOCK
   if (containsFinancialLanguage(generatedReply)) {
