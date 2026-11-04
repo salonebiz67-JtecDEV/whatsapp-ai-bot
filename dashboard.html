@@ -72,6 +72,14 @@
   .bigpause .bpi { width:54px; height:54px; border-radius:50%; background:rgba(0,0,0,.14); display:flex; align-items:center; justify-content:center; font-size:26px; flex:none; }
   .bigpause b { display:block; font-size:21px; }
   .bigpause small { font-size:13px; opacity:.8; }
+  label.switch { position:relative; display:inline-block; width:52px; height:30px; flex:none; margin:0; }
+  .switch input { opacity:0; width:0; height:0; position:absolute; }
+  .slider { position:absolute; inset:0; background:var(--line); border-radius:30px; transition:.2s; cursor:pointer; }
+  .slider:before { content:''; position:absolute; height:24px; width:24px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.2s; }
+  .switch input:checked + .slider { background:var(--accent); }
+  .switch input:checked + .slider:before { transform:translateX(22px); }
+  .sched { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; margin-bottom:10px; display:flex; flex-direction:column; gap:8px; }
+  .cbody .badge { margin-right:6px; }
   .banner { background:var(--amberBg); color:var(--amber); border-radius:12px; padding:10px 12px; font-size:13px; margin-bottom:12px; }
   .badge.rel { background:var(--card2); color:var(--accent); }
   .chips { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:6px; }
@@ -304,6 +312,13 @@
       <h3 class="sec">Behaviour</h3>
       <div class="card"><div class="kv" id="setBehaviour"></div></div>
       <div class="small muted" style="margin:6px 4px 14px">To change these, edit the variables in Render → your service → Environment (OWNER_NAME, ASSISTANT_NAME, PERSONA, GOALS, TIMEZONE, LOCATION, HUMAN_DELAYS, SUMMARY_HOUR…). Render restarts the bot automatically.</div>
+      <h3 class="sec">How the AI writes like you</h3>
+      <div class="card">
+        <div id="styleText" class="small">Loading…</div>
+        <div class="small muted" style="margin-top:8px">The AI learns only your manner (calm, respectful, short…) from messages you send on your phone. It never reuses your actual sentences.</div>
+        <div class="row" style="margin-top:12px"><button class="btn grow" onclick="refreshStyle()">🔄 Update now</button></div>
+        <div id="styleMsg" class="msg"></div>
+      </div>
       <h3 class="sec">Account</h3>
       <div class="card"><button class="btn danger" style="width:100%" onclick="signOut()">Sign out of this dashboard</button></div>
     </section>
@@ -327,14 +342,35 @@
   <!-- CONTACT SETTINGS SHEET -->
   <div id="sheet" class="sheet hidden" onclick="if(event.target===this)closeSheet()">
     <div class="sheetbox">
-      <div class="row between" style="margin-bottom:6px"><b id="shName" style="font-size:18px">Contact settings</b><button class="iconbtn" onclick="closeSheet()" aria-label="Close">✕</button></div>
+      <div class="row between" style="margin-bottom:10px"><b id="shName" style="font-size:18px">Contact settings</b><button class="iconbtn" onclick="closeSheet()" aria-label="Close">✕</button></div>
+
+      <div class="card toggle" style="margin-bottom:12px">
+        <div><b>AI replies to this person</b><div class="small muted" id="onHint">ON: the AI answers their messages.</div></div>
+        <label class="switch"><input type="checkbox" id="shOn" onchange="updateOnHint()"><span class="slider"></span></label>
+      </div>
+
       <label>Who is this person to you?</label>
       <div id="relChips" class="chips"></div>
-      <label>Your instructions for this person (optional)</label>
-      <textarea id="shPrompt" rows="5" maxlength="1200" placeholder="Example: She is my cousin Aminata. Talk softly, mix English and Krio. Don't discuss my work."></textarea>
-      <div class="small muted" style="margin-top:6px">Johnny Tech follows this when replying to this person. It can't switch off the safety rules (no money talk, honest if someone asks if it's a bot).</div>
+      <label>Your notes about this person (optional)</label>
+      <textarea id="shPrompt" rows="4" maxlength="1200" placeholder="Example: My cousin Aminata. Speak softly, mix English and Krio. Don't talk about my work."></textarea>
+      <div class="small muted" style="margin-top:6px">These notes are only a guide. The AI understands the idea and says it in its own clear words, even if your English here is rough. It can't switch off the safety rules.</div>
       <div class="row" style="margin-top:12px"><button class="btn primary grow" onclick="saveContact()">Save</button></div>
       <div id="shMsg" class="msg"></div>
+
+      <h3 class="sec" style="margin:22px 2px 8px">Daily messages</h3>
+      <div class="small muted" style="margin-bottom:10px">The AI writes a fresh message from your instruction at the time you choose, every day, until you turn it off. Times are in <b id="tzName">your</b> time. Nothing is sent while the bot is paused.</div>
+      <div id="schedList"></div>
+      <div class="card" style="margin:10px 0 0">
+        <b>Add a daily message</b>
+        <label>Time</label>
+        <input id="scTime" type="time" value="07:30">
+        <label>What should it say? (rough words are fine)</label>
+        <textarea id="scText" rows="3" maxlength="600" placeholder="Say salam alaikum, greet him and ask how his day is going"></textarea>
+        <label>Days</label>
+        <div id="scDays" class="chips"></div>
+        <div class="row" style="margin-top:8px"><button class="btn primary grow" onclick="addSchedule()">Add daily message</button></div>
+        <div id="scMsg" class="msg"></div>
+      </div>
     </div>
   </div>
 
@@ -355,6 +391,7 @@ if (qs.get('key')) { KEY = qs.get('key'); localStorage.setItem('adminKey', KEY);
 var view = 'home', chats = [], openJid = null, openState = 'bot', lastLogId = 0, logs = [], filter = 'all';
 var pairing = null, pairTick = null, paused = false, timer = null, last = null;
 var relOptions = [], chatProfile = { relationship: '', prompt: '' }, selRel = '', chatsPaused = false;
+var chatSchedules = [], scDays = [0, 1, 2, 3, 4, 5, 6], tzName = '', DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 var avatarCache = {}, avatarPending = {}, avatarQueue = [], avatarActive = 0;
 
 function $(id) { return document.getElementById(id); }
@@ -423,6 +460,7 @@ function show(v) {
   document.querySelectorAll('nav.bottom .nv').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); });
   $('main').scrollTop = 0;
   if (v === 'chats' || v === 'home') loadChats();
+  if (v === 'settings') loadStyle();
 }
 
 /* ---------- login ---------- */
@@ -526,6 +564,7 @@ function chatCard(c) {
   row.appendChild(mk('span', 'cname', c.name)); row.appendChild(mk('span', 'ctime', fmtTime(c.ts)));
   var prefix = c.role === 'bot' ? 'Bot: ' : c.role === 'owner' ? 'You: ' : '';
   body.appendChild(row); body.appendChild(mk('div', 'cprev', prefix + (c.last || '')));
+  if (c.botOff) body.appendChild(mk('span', 'badge paused', 'AI OFF'));
   if (c.relationshipLabel) body.appendChild(mk('span', 'badge rel', c.relationshipLabel.toUpperCase()));
   card.appendChild(body); return card;
 }
@@ -557,6 +596,8 @@ function loadChat(force) {
     $('dName').textContent = r.name; $('dNum').textContent = r.number ? '+' + r.number : '';
     if (!$('dAv').style.backgroundImage) { $('dAv').textContent = initials(r.name); setAvatar($('dAv'), jid); }
     relOptions = r.options || []; chatProfile = r.profile || { relationship: '', prompt: '' };
+    chatSchedules = r.schedules || []; tzName = r.timezone || '';
+    if (!$('sheet').classList.contains('hidden')) renderSchedules();
     var box = $('msgs'), atBottom = force || box.scrollHeight - box.scrollTop - box.clientHeight < 80;
     box.innerHTML = '';
     if (!r.messages.length) box.appendChild(mk('div', 'empty', 'No messages saved for this chat yet.'));
@@ -578,20 +619,91 @@ function renderChips() {
     box.appendChild(c);
   });
 }
+function updateOnHint() { $('onHint').textContent = $('shOn').checked ? 'ON: the AI answers their messages.' : 'OFF: the AI will NOT reply to this person. Their messages are still saved here.'; }
 function openSheet() {
   if (!openJid) return;
   selRel = chatProfile.relationship || ''; $('shPrompt').value = chatProfile.prompt || '';
-  $('shName').textContent = $('dName').textContent; $('shMsg').textContent = '';
-  renderChips(); $('sheet').classList.remove('hidden');
+  $('shOn').checked = !chatProfile.botOff; updateOnHint();
+  $('shName').textContent = $('dName').textContent; $('shMsg').textContent = ''; $('scMsg').textContent = '';
+  $('tzName').textContent = tzName || 'your'; scDays = [0, 1, 2, 3, 4, 5, 6];
+  renderChips(); renderDayChips(); renderSchedules(); $('sheet').classList.remove('hidden');
 }
 function closeSheet() { $('sheet').classList.add('hidden'); }
 function saveContact() {
   if (!openJid) return;
   flash('shMsg', 'Saving…', true);
-  api('/api/contact', { method: 'POST', body: JSON.stringify({ jid: openJid, relationship: selRel, prompt: $('shPrompt').value }) }).then(function (r) {
-    chatProfile = r.profile; flash('shMsg', 'Saved ✓ Johnny Tech will use this for this person.', true); loadChats();
-    setTimeout(closeSheet, 900);
+  api('/api/contact', { method: 'POST', body: JSON.stringify({ jid: openJid, relationship: selRel, prompt: $('shPrompt').value, botOff: !$('shOn').checked }) }).then(function (r) {
+    chatProfile = r.profile; flash('shMsg', 'Saved ✓', true); loadChats();
   }).catch(function (e) { flash('shMsg', e.message || 'Failed', false); });
+}
+
+/* ---------- daily messages ---------- */
+function renderDayChips() {
+  var box = $('scDays'); box.innerHTML = '';
+  [1, 2, 3, 4, 5, 6, 0].forEach(function (d) {
+    var c = mk('button', 'chip' + (scDays.indexOf(d) >= 0 ? ' on' : ''), DAY_NAMES[d]);
+    c.onclick = function () { var i = scDays.indexOf(d); if (i >= 0) scDays.splice(i, 1); else scDays.push(d); renderDayChips(); };
+    box.appendChild(c);
+  });
+}
+function daysText(days) {
+  if (!days || !days.length || days.length === 7) return 'Every day';
+  return days.slice().sort(function (a, b) { return ((a + 6) % 7) - ((b + 6) % 7); }).map(function (d) { return DAY_NAMES[d]; }).join(', ');
+}
+function renderSchedules() {
+  var box = $('schedList'); box.innerHTML = '';
+  if (!chatSchedules.length) { box.appendChild(mk('div', 'small muted', 'No daily messages for this person yet.')); return; }
+  chatSchedules.forEach(function (s) {
+    var card = mk('div', 'sched'), top = mk('div', 'row between');
+    top.appendChild(mk('b', '', s.time));
+    var sw = mk('label', 'switch'), inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = !!s.enabled;
+    inp.onchange = function () { toggleSchedule(s, inp.checked); };
+    sw.appendChild(inp); sw.appendChild(mk('span', 'slider')); top.appendChild(sw); card.appendChild(top);
+    card.appendChild(mk('div', 'small', s.text));
+    card.appendChild(mk('div', 'small muted', daysText(s.days) + (s.lastSent ? ' · last sent ' + s.lastSent : '') + (s.enabled ? '' : ' · OFF')));
+    if (s.lastError) card.appendChild(mk('div', 'msg err', 'Last problem: ' + s.lastError));
+    var row = mk('div', 'row'), b1 = mk('button', 'btn', 'Send now'), b2 = mk('button', 'btn danger', 'Delete');
+    b1.onclick = function () { runScheduleNow(s.id); }; b2.onclick = function () { deleteSchedule(s.id); };
+    row.appendChild(b1); row.appendChild(b2); card.appendChild(row); box.appendChild(card);
+  });
+}
+function toggleSchedule(s, on) {
+  api('/api/schedule', { method: 'POST', body: JSON.stringify({ id: s.id, jid: openJid, text: s.text, time: s.time, days: s.days, enabled: on }) })
+    .then(function () { s.enabled = on; renderSchedules(); }).catch(function (e) { flash('scMsg', e.message || 'Failed', false); renderSchedules(); });
+}
+function addSchedule() {
+  if (!openJid) return;
+  var text = $('scText').value.trim();
+  if (!text) { flash('scMsg', 'Tell the AI what to say first.', false); return; }
+  if (!scDays.length) { flash('scMsg', 'Pick at least one day.', false); return; }
+  flash('scMsg', 'Saving…', true);
+  api('/api/schedule', { method: 'POST', body: JSON.stringify({ jid: openJid, text: text, time: $('scTime').value || '07:30', days: scDays.slice(), enabled: true }) }).then(function (r) {
+    chatSchedules.push(r.schedule); renderSchedules(); $('scText').value = ''; flash('scMsg', 'Added ✓ It will be sent every day at ' + r.schedule.time + ' until you turn it off.', true);
+  }).catch(function (e) { flash('scMsg', e.message || 'Failed', false); });
+}
+function deleteSchedule(id) {
+  if (!confirm('Delete this daily message?')) return;
+  api('/api/schedule/delete', { method: 'POST', body: JSON.stringify({ id: id }) }).then(function () {
+    chatSchedules = chatSchedules.filter(function (s) { return s.id !== id; }); renderSchedules();
+  }).catch(function (e) { flash('scMsg', e.message || 'Failed', false); });
+}
+function runScheduleNow(id) {
+  flash('scMsg', 'Writing and sending now…', true);
+  api('/api/schedule/run', { method: 'POST', body: JSON.stringify({ id: id }) }).then(function (r) { flash('scMsg', 'Sent: “' + r.text + '”', true); loadChat(false); })
+    .catch(function (e) { flash('scMsg', e.message || 'Failed', false); });
+}
+
+/* ---------- learned writing style ---------- */
+function loadStyle() {
+  api('/api/style').then(function (r) {
+    $('styleText').textContent = r.text || 'Not learned yet. It needs at least 5 messages that you typed yourself on your phone to your contacts.';
+  }).catch(function () {});
+}
+function refreshStyle() {
+  flash('styleMsg', 'Learning…', true);
+  api('/api/style/refresh', { method: 'POST', body: '{}' }).then(function (r) {
+    $('styleText').textContent = r.text || 'Not enough messages yet. It needs at least 5 that you typed yourself.'; flash('styleMsg', 'Updated ✓', true);
+  }).catch(function (e) { flash('styleMsg', e.message || 'Failed', false); });
 }
 
 /* ---------- dashboard tools ---------- */

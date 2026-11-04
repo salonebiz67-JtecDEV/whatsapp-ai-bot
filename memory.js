@@ -413,6 +413,75 @@ class MemoryStore {
     }
   }
 
+  // ---------- LEARNED WRITING STYLE (a short description of HOW you write, never your actual sentences) ----------
+  async getAllOwnerSamples(limit = 120) {
+    const out = [];
+    try {
+      if (this.isRedis) {
+        const keys = await this.redis.keys('owner:style:*');
+        for (const k of keys.slice(0, 60)) {
+          const d = await this.redis.get(k);
+          const arr = !d ? [] : (typeof d === 'string' ? JSON.parse(d) : d);
+          for (const s of arr.slice(-8)) out.push(s);
+        }
+      } else {
+        for (const f of fs.readdirSync(this.localDir)) {
+          if (!f.endsWith('_owner_style.json')) continue;
+          const arr = JSON.parse(fs.readFileSync(path.join(this.localDir, f), 'utf-8'));
+          for (const s of arr.slice(-8)) out.push(s);
+        }
+      }
+    } catch (e) { console.warn('getAllOwnerSamples error:', e.message); }
+    return out.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)).slice(-limit).map(s => String((s && s.content) || '')).filter(Boolean);
+  }
+
+  async getStyleProfile() {
+    try {
+      if (this.isRedis) {
+        const raw = await this.redis.get('style:profile');
+        return raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
+      }
+      const f = path.join(this.localDir, 'style_profile.json');
+      return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf-8')) : null;
+    } catch { return null; }
+  }
+
+  async setStyleProfile(profile) {
+    try {
+      if (this.isRedis) await this.redis.set('style:profile', JSON.stringify(profile));
+      else fs.writeFileSync(path.join(this.localDir, 'style_profile.json'), JSON.stringify(profile));
+    } catch (e) { console.warn('setStyleProfile error:', e.message); }
+  }
+
+  // ---------- DAILY SCHEDULED MESSAGES ----------
+  async listSchedules() {
+    try {
+      let obj = {};
+      if (this.isRedis) obj = (await this.redis.hgetall('schedules')) || {};
+      else {
+        const f = path.join(this.localDir, 'schedules.json');
+        obj = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf-8')) : {};
+      }
+      return Object.values(obj).map(v => (typeof v === 'string' ? JSON.parse(v) : v)).filter(Boolean);
+    } catch (e) { console.warn('listSchedules error:', e.message); return []; }
+  }
+
+  async saveSchedule(s) {
+    if (this.isRedis) { await this.redis.hset('schedules', { [s.id]: JSON.stringify(s) }); return; }
+    const f = path.join(this.localDir, 'schedules.json');
+    const all = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf-8')) : {};
+    all[s.id] = s;
+    fs.writeFileSync(f, JSON.stringify(all));
+  }
+
+  async deleteSchedule(id) {
+    if (this.isRedis) { await this.redis.hdel('schedules', id); return; }
+    const f = path.join(this.localDir, 'schedules.json');
+    const all = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf-8')) : {};
+    delete all[id];
+    fs.writeFileSync(f, JSON.stringify(all));
+  }
+
   // ---------- PER-CONTACT PROFILE (relationship + your own instructions) + BOT ON/OFF SWITCH ----------
   async getContactProfile(jid) {
     try {
@@ -428,7 +497,7 @@ class MemoryStore {
 
   async setContactProfile(jid, profile) {
     try {
-      const clean = { relationship: profile.relationship || '', prompt: (profile.prompt || '').slice(0, 1200), updated: Date.now() };
+      const clean = { relationship: profile.relationship || '', prompt: (profile.prompt || '').slice(0, 1200), botOff: !!profile.botOff, updated: Date.now() };
       if (this.isRedis) {
         await this.redis.hset('contacts:profile', { [jid]: JSON.stringify(clean) });
       } else {
