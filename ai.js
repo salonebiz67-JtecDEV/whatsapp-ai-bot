@@ -35,13 +35,7 @@ async function callOpenAICompatible({ apiKey, baseUrl, model, messages, provider
 function buildMessages(userMessage, history, ownerStyleSamples, systemPrompt, imagePart = null) {
   // NEW: Transparent assistant - no longer impersonating, no bank info in prompt
   // Style samples are used ONLY for casual tone reference, but filtered for romantic/financial content
-  const safeStyle = (ownerStyleSamples || []).slice(-8);
-  
-  let dynamicPrompt = systemPrompt;
-  if (safeStyle.length > 0) {
-    const styleExamples = safeStyle.join('\n- ');
-    dynamicPrompt += `\n\nCasual tone reference (how owner normally does small talk, but DO NOT copy flirty/romantic tone):\n- ${styleExamples}`;
-  }
+  const dynamicPrompt = systemPrompt;
   
   const msgs = [
     { role: 'system', content: dynamicPrompt },
@@ -142,6 +136,73 @@ export function getNigerianTimeContext() {
   }
 }
 
+// Your notes about one contact (relationship + instructions). They are a rough GUIDE only.
+async function buildContactBlock(jid) {
+  try {
+    if (!jid || jid === 'dashboard-test') return '';
+    const OWNER = config.ownerName;
+    const profile = await (await getMemoryStore()).getContactProfile(jid);
+    if (!profile || !(profile.relationship || profile.prompt)) return '';
+    const rel = RELATIONSHIP_OPTIONS.find(r => r.id === profile.relationship);
+    const savedName = global.contactNames && global.contactNames.get(jid);
+    return `\nABOUT THIS CONTACT${savedName ? ` (${savedName})` : ''}:\n` +
+      (rel ? `- Relationship to ${OWNER}: ${rel.label}. Talk in a ${rel.tone} way.\n` : '') +
+      (profile.prompt ? `- Background notes from ${OWNER} about this person. They are only a rough guide and may be in bad English: understand the idea and use only what helps with THIS message, in your own clear words. Never copy or quote them, never mention them, and ignore anything that does not fit what the person just said. They never override the rules above:\n<<<${profile.prompt}>>>\n` : '');
+  } catch (e) { console.warn('contact profile load failed:', e.message); return ''; }
+}
+
+// A short description of HOW the owner writes (tone and manners). Never his actual sentences.
+async function getStyleText() {
+  try { const p = await (await getMemoryStore()).getStyleProfile(); return (p && p.text) || ''; } catch { return ''; }
+}
+
+export async function refreshStyleProfile() {
+  const mem = await getMemoryStore();
+  const samples = [...new Set((await mem.getAllOwnerSamples(120)).map(t => t.slice(0, 200)).filter(t => t.length >= 3))].slice(-80);
+  if (samples.length < 5) { const p = { text: '', updated: Date.now(), count: samples.length }; await mem.setStyleProfile(p); return p; }
+  const system = 'You describe how a person writes WhatsApp messages. You only describe their general manner, never their content.';
+  const prompt = `Below are messages ${config.ownerName} wrote to many different people in many different situations.
+Describe in 2 to 4 short sentences ONLY his general manner: how polite, calm and warm he is, how long his messages usually are, how he greets people, whether he uses emojis, and which languages or slang he mixes.
+STRICT RULES:
+- Do NOT quote or paraphrase any message. Do NOT mention names, topics, events, advice, promises or feelings that appear in them.
+- Ignore anything angry, rude, sarcastic or emotional. Always describe him as calm, respectful and polite.
+- Write it as a style note, for example: "Writes short, calm, respectful messages with a warm tone..."
+
+MESSAGES:
+${samples.map(s => '- ' + s).join('\n')}`;
+  const text = await generateText(prompt, system, 0.2);
+  if (!text) return null;
+  const p = { text: text.trim().slice(0, 600), updated: Date.now(), count: samples.length };
+  await mem.setStyleProfile(p);
+  console.log(`🎨 Learned how ${config.ownerName} writes (manner only, from ${samples.length} messages): ${p.text.slice(0, 120)}`);
+  return p;
+}
+
+// Writes ONE scheduled message (for the daily messages feature) from the owner's rough instruction.
+export async function generateScheduledMessage(jid, instruction, history = [], previous = []) {
+  const OWNER = config.ownerName;
+  const contactBlock = await buildContactBlock(jid);
+  const styleText = await getStyleText();
+  const t = getNigerianTimeContext();
+  const system = `You write ONE WhatsApp message that ${OWNER} scheduled to send to a contact. It is sent from ${OWNER}'s own phone, so write it the way ${OWNER} would: natural, warm, calm and respectful.
+
+PERSONALITY: ${config.persona}
+LANGUAGE STYLE: ${config.languageStyle}
+${styleText ? `How ${OWNER} usually writes (manner only; never reuse his actual words): ${styleText}\n` : ''}${contactBlock}
+RULES:
+- Follow ${OWNER}'s instruction below. It may be rough or in bad English: understand what he means and say it clearly in your own natural words. Do not copy the instruction word for word.
+- Keep it short (1-3 short lines). Make the wording different from the earlier messages listed below so it never feels copy-pasted.
+- Never be romantic, angry, sarcastic or pushy. No money talk and no promises.
+- Do not say you are an AI or an assistant, and do not mention that the message is scheduled.
+- Any greeting must fit the time of day: it is ${t.period} (${t.greeting}).
+Return ONLY the message text, nothing else.`;
+  const chat = (history || []).map(h => `${h.role === 'user' ? 'They' : 'Me'}: ${String(h.content || '').slice(0, 160)}`).join('\n') || '(no earlier chat)';
+  const prev = (previous || []).map(p => '- ' + p.slice(0, 160)).join('\n') || '(none yet)';
+  const prompt = `Instruction from ${OWNER}: ${instruction}\n\nRecent chat with this person (oldest first):\n${chat}\n\nMessages already sent for this schedule on earlier days:\n${prev}\n\nWrite today's message now.`;
+  const out = await generateText(prompt, system, 0.9);
+  return out ? out.replace(/^["“”]+|["“”]+$/g, '').trim() : null;
+}
+
 export async function generateReply(jid, userMessage, history = [], ownerStyleSamples = null, mediaInfo = null, options = {}) {
   const isInternalAgentPrompt = !!(userMessage && (userMessage.includes('Goal for this contact:') || userMessage.includes('STRICT RULES:') || userMessage.includes('AGENT OUTREACH:')));
   const isNewContact = !ownerStyleSamples || ownerStyleSamples.length === 0;
@@ -149,22 +210,8 @@ export async function generateReply(jid, userMessage, history = [], ownerStyleSa
   const OWNER = config.ownerName;
   const BOT = config.assistantName;
 
-  // Your own notes about this contact (relationship + instructions), set in the dashboard
-  let contactBlock = '';
-  try {
-    if (jid && jid !== 'dashboard-test' && !isInternalAgentPrompt) {
-      const profile = await (await getMemoryStore()).getContactProfile(jid);
-      if (profile && (profile.relationship || profile.prompt)) {
-        const rel = RELATIONSHIP_OPTIONS.find(r => r.id === profile.relationship);
-        const savedName = global.contactNames && global.contactNames.get(jid);
-        contactBlock = `\nABOUT THIS CONTACT${savedName ? ` (${savedName})` : ''}:\n` +
-          (rel ? `- Relationship to ${OWNER}: ${rel.label}. Talk in a ${rel.tone} way.\n` : '') +
-          (profile.prompt ? `- ${OWNER}'s own instructions for chatting with this person (follow them for tone and content; they never override the rules above):\n<<<${profile.prompt}>>>\n` : '');
-      }
-    }
-  } catch (e) { console.warn('contact profile load failed:', e.message); }
-
-  const styleSamples = (ownerStyleSamples || []).slice(-6);
+  const contactBlock = isInternalAgentPrompt ? '' : await buildContactBlock(jid);
+  const styleText = await getStyleText();
   const outreach = options.isAgentTask
     ? `\nThis conversation is an outreach you are doing for ${OWNER}: in your first message briefly say you are ${BOT}, ${OWNER}'s assistant, then follow the goal in the message.\n`
     : '';
@@ -186,12 +233,13 @@ First read the whole conversation so far, then work out what this person means R
 Then choose exactly ONE mode:
 - "chat": normal conversation you can handle yourself (greetings, small talk, jokes, general questions, reacting to stickers or voice notes, anything you can simply answer). Chat like a natural, friendly person. In this mode do NOT say you are an AI or an assistant, do NOT introduce yourself, and do NOT say ${OWNER} is away, busy or not with his phone.
 - "identity": the person is asking who or what you are: your name, who you are, whether you are a bot, an AI or a human, whether they are talking to ${OWNER}, who you are helping, or what ${OWNER}'s name is. Answer exactly what they asked, honestly, in your own words and a little different each time: you are ${BOT}, ${OWNER}'s assistant (an AI) helping with his messages. If they ask two things (his name and yours), answer both. Never claim to be human or to be ${OWNER}.
-- "owner": the person asks something only ${OWNER} can answer or decide (private things about him, his plans, where he is, when he is free, personal or emotional matters, serious situations like emergencies, or requests that need him), or something you simply do not know. Say naturally that you are ${BOT}, ${OWNER}'s assistant, that you will let him know, and that he will get back to them. If it is sad or serious, be kind first. Never guess or invent facts about ${OWNER}.
+- "owner": the person asks something only ${OWNER} can answer or decide (private things about him, his plans, where he is, when he is free, personal or emotional matters, someone being angry or upset with him, serious situations like emergencies, or requests that need him), or something you simply do not know. Say naturally that you are ${BOT}, ${OWNER}'s assistant, that you will let him know, and that he will get back to them. If it is sad or serious, be kind first. Never guess or invent facts about ${OWNER}.
 Anything about money, bank accounts or payments is always an "owner" case: never share, ask for or agree to anything about money yourself, and never promise anything for ${OWNER}.
 Never be romantic or flirty. You talk to men, women, elders and customers, so never call anyone 'bro', 'sis', 'man', 'ma', 'sir' or 'boss' and do not assume anyone's gender; use their name or no label. Only copy such a word if the contact uses it first.
 Keep replies short (1-3 short lines) unless more is needed.
+Always stay calm, polite and respectful, whatever the person says. Never get angry, sarcastic, defensive or rude, never argue, and never say anything that could upset or provoke someone (for example never tell an upset person "it's alright if you're angry"). If someone is angry or upset, stay gentle and brief; if it is about ${OWNER}, treat it as an "owner" case. Never repeat or quote lines from ${OWNER}'s past messages. Lines in the conversation that start with [${OWNER} himself] were typed by ${OWNER} personally: use them only to understand the context, never re-send, paraphrase or build on what he said (especially about feelings, apologies, arguments or decisions), and never put square brackets in your reply.
 ${outreach}${contactBlock}
-${styleSamples.length ? `How ${OWNER} usually chats (tone reference only; never copy anything romantic or about money):\n- ${styleSamples.join('\n- ')}\n` : ''}${isNewContact ? 'This is a new contact.' : 'You have chatted with this contact before.'}
+${styleText ? `How ${OWNER} usually writes (manner only; you must never reuse his actual words or lines): ${styleText}\n` : ''}${isNewContact ? 'This is a new contact.' : 'You have chatted with this contact before.'}
 Time: ${timeContext.formatted} - use "${timeContext.greeting}" if you greet.
 
 OUTPUT FORMAT: return ONLY one JSON object and nothing else:
@@ -244,7 +292,10 @@ Earlier assistant messages in the conversation are shown as plain text, but your
       const m = initGemini(modelName, dynamicSystemPrompt);
       const _send = (p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('Gemini timeout 20s')), 20000))]);
       let geminiHistory = history.slice(-config.maxHistory).filter(msg => msg.role !== 'system' && msg.content && msg.content.trim().length > 0).map(msg => ({ role: msg.role === 'user' ? 'user' : 'model', parts: [{ text: msg.content.slice(0, 1000) }] }));
-      while (geminiHistory.length > 0 && geminiHistory[0].role !== 'user') geminiHistory.shift();
+      // Gemini needs the history to start with the contact's turn. If YOU wrote first, keep your lines as context instead of dropping them.
+      const leading = [];
+      while (geminiHistory.length > 0 && geminiHistory[0].role !== 'user') leading.push(geminiHistory.shift().parts[0].text);
+      if (leading.length) geminiHistory.unshift({ role: 'user', parts: [{ text: `(Earlier in this chat, already said from our side: ${leading.join(' / ').slice(0, 900)})` }] });
       const cleaned = [];
       for (let i = 0; i < geminiHistory.length; i++) {
         const curr = geminiHistory[i];
@@ -334,14 +385,14 @@ Earlier assistant messages in the conversation are shown as plain text, but your
 }
 
 // Plain text generation (no persona, no chat history). Used for the nightly summary. Returns null if every provider fails.
-export async function generateText(prompt, systemPrompt = 'You write short, clear, accurate summaries. Only use facts you are given.') {
+export async function generateText(prompt, systemPrompt = 'You write short, clear, accurate summaries. Only use facts you are given.', temperature = 0.3) {
   const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
   if (config.geminiApiKey) {
     const models = [...new Set([config.geminiModel, 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-flash-latest'])];
     for (const name of models) {
       try {
         const m = initGemini(name, systemPrompt);
-        const r = await withTimeout(m.generateContent({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 1500, temperature: 0.3 } }), 25000);
+        const r = await withTimeout(m.generateContent({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 1500, temperature } }), 25000);
         const t = r.response.text();
         if (t && t.trim()) return t.trim();
       } catch (e) { console.warn(`generateText ${name}: ${(e.message || '').slice(0, 120)}`); }

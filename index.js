@@ -5,10 +5,11 @@ import http from 'http';
 import { config, validateConfig } from './config.js';
 import { createAuthState } from './auth.js';
 import { getMemoryStore } from './memory.js';
-import { RELATIONSHIP_OPTIONS, generateReply, parseOwnerCommand, getOwnerHelpText, getNigerianTimeContext } from './ai.js';
+import { RELATIONSHIP_OPTIONS, generateReply, refreshStyleProfile, parseOwnerCommand, getOwnerHelpText, getNigerianTimeContext } from './ai.js';
 import { extractOwnerStyleFromExport } from './import.js';
 import fs from 'fs';
 import { trackChat } from './chats.js';
+import { startSchedulers, runSchedule, newScheduleId, localNow } from './schedules.js';
 import { recordExchange, startSummaryScheduler, sendSummary, buildSummary, summaryInfo } from './summary.js';
 import { getAgentManager, parseAgentCommand, parseNaturalAgentIntent, extractNumbersFromVcard, extractNumbersRobust } from './agent.js';
 
@@ -152,7 +153,8 @@ async function handleApi(req, res, reqPath) {
         last: c.last, role: c.role, ts: c.ts, count: c.count,
         relationship: (profiles[c.jid] && profiles[c.jid].relationship) || '',
         relationshipLabel: ((RELATIONSHIP_OPTIONS.find(r => profiles[c.jid] && r.id === profiles[c.jid].relationship)) || {}).label || '',
-        hasNotes: !!(profiles[c.jid] && profiles[c.jid].prompt)
+        hasNotes: !!(profiles[c.jid] && profiles[c.jid].prompt),
+        botOff: !!(profiles[c.jid] && profiles[c.jid].botOff)
       }));
       return sendJson(res, 200, { chats, paused: !!global.botPaused });
     }
@@ -168,6 +170,8 @@ async function handleApi(req, res, reqPath) {
         name: (global.contactNames.get(jid)) || c.name || (jid.endsWith('@s.whatsapp.net') ? '+' + jid.split('@')[0] : 'Unknown contact'),
         profile: (await mem.getContactProfile(jid)) || { relationship: '', prompt: '' },
         options: RELATIONSHIP_OPTIONS.map(r => ({ id: r.id, label: r.label })),
+        schedules: (await mem.listSchedules()).filter(x => x.jid === jid).map(x => ({ id: x.id, text: x.text, time: x.time, days: x.days || [], enabled: !!x.enabled, lastSent: x.lastSent || '', lastError: x.lastError || '' })),
+        timezone: config.timezone,
         messages: await mem.getChatLog(jid)
       });
     }
@@ -178,6 +182,11 @@ async function handleApi(req, res, reqPath) {
       if (!av || av.none || !av.buf) return sendJson(res, 404, { error: 'No profile picture' });
       res.writeHead(200, { 'Content-Type': av.type, 'Cache-Control': 'private, max-age=3600' });
       return res.end(av.buf);
+    }
+    if (reqPath === '/api/style') {
+      const mem = await getMemoryStore();
+      const p = await mem.getStyleProfile();
+      return sendJson(res, 200, { text: (p && p.text) || '', updated: (p && p.updated) || 0, count: (p && p.count) || 0 });
     }
     if (reqPath === '/api/logs') {
       const since = parseInt(new URL(req.url, 'http://localhost').searchParams.get('since') || '0', 10);
@@ -192,9 +201,52 @@ async function handleApi(req, res, reqPath) {
       const relationship = String(body.relationship || '');
       if (relationship && !RELATIONSHIP_OPTIONS.some(r => r.id === relationship)) return sendJson(res, 400, { error: 'Unknown relationship' });
       const mem = await getMemoryStore();
-      const saved = await mem.setContactProfile(jid, { relationship, prompt: String(body.prompt || '') });
-      console.log(`📝 Saved contact settings for ${jid.split('@')[0]} (${relationship || 'no relationship'}${saved.prompt ? ', custom instructions' : ''})`);
+      const saved = await mem.setContactProfile(jid, { relationship, prompt: String(body.prompt || ''), botOff: !!body.botOff });
+      console.log(`📝 Saved contact settings for ${jid.split('@')[0]} (${relationship || 'no relationship'}${saved.prompt ? ', custom instructions' : ''}, AI ${saved.botOff ? 'OFF' : 'ON'})`);
       return sendJson(res, 200, { ok: true, profile: saved });
+    }
+    if (reqPath === '/api/style/refresh') {
+      const p = await refreshStyleProfile();
+      if (!p) return sendJson(res, 500, { error: 'The AI could not write the style note right now. Try again later.' });
+      return sendJson(res, 200, { ok: true, text: p.text, updated: p.updated, count: p.count });
+    }
+    if (reqPath === '/api/schedule') {
+      const jid = String(body.jid || '');
+      if (!/^[0-9a-zA-Z@._-]{3,80}$/.test(jid)) return sendJson(res, 400, { error: 'Bad chat id' });
+      const text = String(body.text || '').trim().slice(0, 600);
+      const time = String(body.time || '');
+      if (!text) return sendJson(res, 400, { error: 'Tell the AI what to say first.' });
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return sendJson(res, 400, { error: 'Pick a valid time.' });
+      const days = Array.isArray(body.days) ? [...new Set(body.days.map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))] : [];
+      const mem = await getMemoryStore();
+      const existing = body.id ? (await mem.listSchedules()).find(x => x.id === body.id && x.jid === jid) : null;
+      const sch = {
+        id: existing ? existing.id : newScheduleId(), jid, text, time,
+        days: days.length === 7 ? [] : days,
+        enabled: body.enabled === undefined ? (existing ? existing.enabled : true) : !!body.enabled,
+        lastSent: existing ? existing.lastSent : '', lastTexts: existing ? existing.lastTexts : [], created: existing ? existing.created : Date.now()
+      };
+      const changed = !existing || existing.time !== time || existing.text !== text || JSON.stringify(existing.days || []) !== JSON.stringify(sch.days);
+      if (changed && sch.enabled) { // the first message goes out at the NEXT chosen time, not right now
+        const nowL = localNow();
+        if (nowL.minutes >= parseInt(time.slice(0, 2), 10) * 60 + parseInt(time.slice(3, 5), 10)) sch.lastSent = nowL.dateKey; else sch.lastSent = '';
+      }
+      await mem.saveSchedule(sch);
+      console.log(`⏰ Daily message ${existing ? 'updated' : 'added'} for ${jid.split('@')[0]} at ${time} (${sch.enabled ? 'ON' : 'OFF'})`);
+      return sendJson(res, 200, { ok: true, schedule: { id: sch.id, text: sch.text, time: sch.time, days: sch.days, enabled: sch.enabled, lastSent: sch.lastSent } });
+    }
+    if (reqPath === '/api/schedule/delete') {
+      const mem = await getMemoryStore();
+      await mem.deleteSchedule(String(body.id || ''));
+      return sendJson(res, 200, { ok: true });
+    }
+    if (reqPath === '/api/schedule/run') {
+      if (global.botStatus !== 'connected' || !sock) return sendJson(res, 400, { error: 'WhatsApp is not connected right now.' });
+      const mem = await getMemoryStore();
+      const sch = (await mem.listSchedules()).find(x => x.id === String(body.id || ''));
+      if (!sch) return sendJson(res, 404, { error: 'Schedule not found' });
+      const text = await runSchedule(sock, sch, { markSent: false });
+      return sendJson(res, 200, { ok: true, text });
     }
     if (reqPath === '/api/pause') {
       await setPaused(!!body.paused);
@@ -334,7 +386,7 @@ async function loadStats(){document.getElementById('stats').innerHTML='⏳...';t
         const targetJid = jid.includes('@') ? jid : `${jid.replace(/[^0-9]/g,'')}@s.whatsapp.net`;
         let learned = 0;
         for (const s of result.styleSamples) { await mem.addOwnerMessage(targetJid, s); learned++; }
-        for (const msg of result.conversation.slice(-20)) { await mem.addMessage(targetJid, msg.role, msg.content); }
+        for (const msg of result.conversation.slice(-20)) { await mem.addMessage(targetJid, msg.role, msg.role === 'assistant' ? `[${config.ownerName} himself] ${msg.content}` : msg.content); }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, message: `Imported ${result.totalMessages} msgs (${result.ownerCount} you)`, learned }));
       } catch (e) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ success: false, error: e.message })); }
@@ -630,6 +682,7 @@ async function startBot() {
         global.botStatus = 'connected';
         global.pairing = null;
         startSummaryScheduler(() => sock);
+        startSchedulers(() => sock);
         pairingCodeRequested = false;
         isStarting = false;
       } else if (connection === 'connecting') {
@@ -678,6 +731,19 @@ async function handleMessage(msg) {
   if (!isSelfChat && !jid.endsWith('@g.us')) {
     const preview = messageContent || (mediaInfo ? `[${mediaInfo.type}]` : '');
     if (preview) trackChat(jid, { name: isFromMe ? null : msg.pushName, role: isFromMe ? 'owner' : 'contact', text: preview, ts: Number(msg.messageTimestamp || 0) * 1000 });
+  }
+
+  // Per-contact switch: when "AI replies to this person" is OFF, save what they send but never answer
+  if (!isFromMe && !isSelfChat && !jid.endsWith('@g.us')) {
+    try {
+      const prof = await memory.getContactProfile(jid);
+      if (prof && prof.botOff) {
+        const t = messageContent || (mediaInfo ? `[${mediaInfo.type}]` : '');
+        if (t) await memory.addMessage(jid, 'user', t);
+        console.log(`🔕 AI is turned OFF for ${msg.pushName || jid.split('@')[0]}: message saved, no reply`);
+        return;
+      }
+    } catch (e) { console.warn('botOff check failed:', e.message); }
   }
 
   // Document import
@@ -817,7 +883,7 @@ async function handleMessage(msg) {
       if (cmd) { await handleOwnerCommand(cmd, jid); return; }
       if (messageContent && !messageContent.startsWith('/')) {
         await memory.addOwnerMessage(jid, messageContent);
-        await memory.addMessage(jid, 'assistant', messageContent);
+        await memory.addMessage(jid, 'assistant', `[${config.ownerName} himself] ${messageContent}`);
         console.log(`📝 Learned YOUR style for ${contactName}: "${messageContent.slice(0,50)}..."`);
       }
     }
