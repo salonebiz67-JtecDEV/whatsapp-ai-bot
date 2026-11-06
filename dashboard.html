@@ -121,6 +121,7 @@
   #msgs { flex:1; overflow-y:auto; padding:14px 12px; display:flex; flex-direction:column; gap:8px; }
   .bub { max-width:82%; padding:9px 12px; border-radius:16px; font-size:15px; line-height:1.4; white-space:pre-wrap; word-break:break-word; }
   .bub .who { display:block; font-size:10px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; opacity:.7; margin-bottom:2px; }
+  .bub .qt { border-left:3px solid var(--accent); padding:4px 8px; margin-bottom:6px; font-size:12px; opacity:.85; border-radius:4px; background:rgba(127,127,127,.15); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .bub .tm { display:block; font-size:11px; opacity:.55; margin-top:3px; text-align:right; }
   .bub.contact { align-self:flex-start; background:var(--bubbleIn); border:1px solid var(--line); border-bottom-left-radius:5px; }
   .bub.bot { align-self:flex-end; background:var(--bubbleBot); border-bottom-right-radius:5px; }
@@ -328,6 +329,9 @@
         <div class="setrow" style="margin-top:12px"><div><b>Split replies</b><div class="small muted">Send longer answers as 1–3 short messages with natural pauses</div></div><label class="switch"><input type="checkbox" id="stSplit"><span class="slider"></span></label></div>
         <div class="setrow"><div><b>Emoji reactions</b><div class="small muted">React with an emoji instead of texting when it fits (max 1 per 15 minutes per person)</div></div><label class="switch"><input type="checkbox" id="stReact"><span class="slider"></span></label></div>
         <div class="setrow"><div><b>React to stickers</b><div class="small muted">When someone sends a sticker, the AI reacts with a fitting emoji</div></div><label class="switch"><input type="checkbox" id="stSticker"><span class="slider"></span></label></div>
+        <label>Reply to a specific message (WhatsApp swipe-reply)</label>
+        <select id="stQuote"><option value="smart">Smart: the AI decides when it helps</option><option value="always">Always: every reply points to the message it answers</option><option value="off">Off: normal replies, never quote</option></select>
+        <div class="small muted" style="margin:6px 0 12px">Smart quotes when someone sends several messages in a row, or asks about something they said earlier. Answering one by one always quotes the message each reply belongs to.</div>
         <div class="two">
           <div><label>Max replies per hour (per person)</label><input id="stMaxC" type="number" min="1" max="1000"></div>
           <div><label>Max replies per hour (everyone)</label><input id="stMaxG" type="number" min="1" max="5000"></div>
@@ -664,6 +668,7 @@ function loadChat(force) {
     r.messages.forEach(function (m) {
       var b = mk('div', 'bub ' + m.role);
       if (m.role !== 'contact') b.appendChild(mk('span', 'who', m.role === 'bot' ? 'Bot' : 'You'));
+      if (m.quote) b.appendChild(mk('div', 'qt', '↩ ' + m.quote));
       b.appendChild(document.createTextNode(m.text)); b.appendChild(mk('span', 'tm', fmtTime(m.ts))); box.appendChild(b);
     });
     if (atBottom) box.scrollTop = box.scrollHeight;
@@ -757,7 +762,7 @@ function runScheduleNow(id) {
 var SETTING_FIELDS = [
   ['stHuman', 'humanTyping', 'bool'], ['stSpeed', 'typingSpeed', 'str'], ['stDelayMin', 'delayMin', 'num'], ['stDelayMax', 'delayMax', 'num'],
   ['stBurst', 'burstBatching', 'bool'], ['stQuiet', 'quietSeconds', 'num'], ['stSplit', 'splitReplies', 'bool'], ['stReact', 'emojiReactions', 'bool'],
-  ['stSticker', 'reactToStickers', 'bool'], ['stMaxC', 'maxPerHourContact', 'num'], ['stMaxG', 'maxPerHourGlobal', 'num'],
+  ['stSticker', 'reactToStickers', 'bool'], ['stQuote', 'quoteReplies', 'str'], ['stMaxC', 'maxPerHourContact', 'num'], ['stMaxG', 'maxPerHourGlobal', 'num'],
   ['stOwner', 'ownerName', 'str'], ['stBot', 'assistantName', 'str'], ['stAbout', 'aboutOwner', 'str'], ['stLang', 'languages', 'str'],
   ['stStyle', 'writingStyle', 'str'], ['stPersona', 'persona', 'str'], ['stGoals', 'goals', 'str'],
   ['stAlerts', 'alerts', 'bool'], ['stLearn', 'learnFromReplies', 'bool'], ['stSumOn', 'summaryEnabled', 'bool'], ['stSumHour', 'summaryHour', 'num'],

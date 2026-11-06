@@ -534,7 +534,22 @@ async function logWhilePaused(msg) {
 const jidChains = new Map();
 const jidPending = new Map();
 const jidLastArrival = new Map();   // when this person last sent something (for the quiet window)
-const lastReaction = new Map();     // when the AI last reacted to this person
+const lastReaction = new Map();
+// Recent messages from each person (kept in memory) so a reply can point at one exact message (WhatsApp swipe-reply)
+const recentIncoming = new Map();
+const lastQuote = new Map();
+function rememberIncoming(jid, msg, text) {
+  const list = recentIncoming.get(jid) || [];
+  list.push({ id: msg.key && msg.key.id, msg, text: String(text || '').slice(0, 300), ts: Date.now() });
+  while (list.length > 10) list.shift();
+  recentIncoming.delete(jid); recentIncoming.set(jid, list);
+  if (recentIncoming.size > 200) recentIncoming.delete(recentIncoming.keys().next().value);
+}
+function agoText(ts) {
+  const m = Math.round((Date.now() - ts) / 60000);
+  return m < 2 ? 'a moment ago' : m < 60 ? `${m} minutes ago` : m < 1440 ? `${Math.round(m / 60)} hours ago` : `${Math.round(m / 1440)} days ago`;
+}
+     // when the AI last reacted to this person
 const sleepMs = (ms) => new Promise(r => setTimeout(r, ms));
 function enqueueMessage(msg) {
   const jid = msg.key.remoteJid;
@@ -746,6 +761,7 @@ async function handleMessage(msg) {
   // Dashboard Chats tab: log what the contact wrote, or what you wrote yourself from your phone
   if (!isSelfChat && !jid.endsWith('@g.us')) {
     const preview = messageContent || (mediaInfo ? `[${mediaInfo.type}]` : '');
+    if (preview && !isFromMe) rememberIncoming(jid, msg, preview);
     if (preview) trackChat(jid, { name: isFromMe ? null : msg.pushName, role: isFromMe ? 'owner' : 'contact', text: preview, ts: Number(msg.messageTimestamp || 0) * 1000 });
   }
 
@@ -1066,8 +1082,14 @@ async function handleMessage(msg) {
     // If we have transcription, use it as the message, otherwise use original
     const finalMessageForAI = transcribedText || messageContent || historyText;
     
+    // Which recent messages the AI may point at (only in "Smart" mode; the AI decides which one, if any)
+    let quoteChoices = [];
+    if ((settingsNow.quoteReplies || 'smart') === 'smart') {
+      const recent = (recentIncoming.get(jid) || []).slice(-6);
+      if (recent.length >= 2) quoteChoices = recent.map((r, i) => ({ n: i + 1, text: r.text.slice(0, 140), ago: agoText(r.ts), msg: r.msg }));
+    }
     const aiMeta = {};
-    const aiReply = await generateReply(jid, finalMessageForAI, history.slice(0, -1), ownerStyleTexts, mediaForAI, { meta: aiMeta });
+    const aiReply = await generateReply(jid, finalMessageForAI, history.slice(0, -1), ownerStyleTexts, mediaForAI, { meta: aiMeta, quoteChoices: quoteChoices.map(({ n, text, ago }) => ({ n, text, ago })) });
 
     // ===== SEND: wait the delay you chose, react, then send 1-3 message parts =====
     const ms = TYPING_MS_PER_CHAR[settingsNow.typingSpeed] || 30;
@@ -1092,12 +1114,23 @@ async function handleMessage(msg) {
     }
     if (!parts.length) { return; }   // reaction only
 
-    const quote = (!settingsNow.burstBatching && pendingAtStart > 1) ? { quoted: msg } : undefined;
+    // Swipe-reply (quote) logic: Off = never. Always = every reply points at the message it answers.
+    // Smart = one by one with several messages waiting: always tie the reply to its message; otherwise the AI picks (rarely, with a 2 minute pause between quotes).
+    const quoteMode = settingsNow.quoteReplies || 'smart';
+    let quotedMsg = null, quotedText = '';
+    if (quoteMode === 'always') { quotedMsg = msg; quotedText = messageContent || historyText || ''; }
+    else if (quoteMode === 'smart') {
+      if (!settingsNow.burstBatching && Math.max(pendingAtStart, jidPending.get(jid) || 0) > 1) { quotedMsg = msg; quotedText = messageContent || historyText || ''; }
+      else if (aiMeta.quote > 0 && quoteChoices[aiMeta.quote - 1] && Date.now() - (lastQuote.get(jid) || 0) > 2 * 60 * 1000) {
+        quotedMsg = quoteChoices[aiMeta.quote - 1].msg; quotedText = quoteChoices[aiMeta.quote - 1].text; lastQuote.set(jid, Date.now());
+      }
+    }
+    const quote = quotedMsg ? { quoted: quotedMsg } : undefined;
     for (let k = 0; k < parts.length; k++) {
       if (settingsNow.humanTyping) { await sock.sendPresenceUpdate('composing', jid); await delay(typingMs(parts[k])); }
       await sock.sendMessage(jid, { text: parts[k] }, k === 0 && quote ? quote : undefined);
       if (settingsNow.humanTyping) await sock.sendPresenceUpdate('paused', jid);
-      trackChat(jid, { role: 'bot', text: parts[k] });
+      trackChat(jid, { role: 'bot', text: parts[k], quote: k === 0 && quotedMsg ? quotedText : '' });
       if (k < parts.length - 1) await delay(getRandomInt(600, 1500));
     }
     const sentText = parts.join('\n');

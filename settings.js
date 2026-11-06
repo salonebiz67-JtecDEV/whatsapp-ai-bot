@@ -14,7 +14,7 @@ export function defaultSettings() {
     // natural replies & pacing
     humanTyping: true, typingSpeed: 'fast', delayMin: 1, delayMax: 3,
     burstBatching: true, quietSeconds: 5, splitReplies: true,
-    emojiReactions: true, reactToStickers: true,
+    emojiReactions: true, reactToStickers: true, quoteReplies: 'smart',
     maxPerHourContact: BASE.maxPerHour, maxPerHourGlobal: 300,
     // about you and the AI
     ownerName: BASE.ownerName, assistantName: BASE.assistantName, aboutOwner: '', languages: 'English, Krio', writingStyle: '',
@@ -42,6 +42,7 @@ export function sanitize(p = {}, cur = defaultSettings()) {
   if ('quietSeconds' in p) o.quietSeconds = Math.round(num(p.quietSeconds, 2, 12, cur.quietSeconds));
   if ('splitReplies' in p) o.splitReplies = bool(p.splitReplies, cur.splitReplies);
   if ('emojiReactions' in p) o.emojiReactions = bool(p.emojiReactions, cur.emojiReactions);
+  if ('quoteReplies' in p) o.quoteReplies = ['smart', 'always', 'off'].includes(p.quoteReplies) ? p.quoteReplies : cur.quoteReplies;
   if ('reactToStickers' in p) o.reactToStickers = bool(p.reactToStickers, cur.reactToStickers);
   if ('maxPerHourContact' in p) o.maxPerHourContact = Math.round(num(p.maxPerHourContact, 1, 1000, cur.maxPerHourContact));
   if ('maxPerHourGlobal' in p) o.maxPerHourGlobal = Math.round(num(p.maxPerHourGlobal, 1, 5000, cur.maxPerHourGlobal));

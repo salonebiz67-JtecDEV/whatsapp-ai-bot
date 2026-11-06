@@ -81,7 +81,8 @@ function parseModelReply(raw) {
       if (!/^\p{Extended_Pictographic}/u.test(react) || react.length > 10) react = '';
     }
     if (parts.length || react) {
-      return { mode: ['chat', 'identity', 'owner'].includes(o.mode) ? o.mode : 'chat', parts, react, note: typeof o.owner_note === 'string' ? o.owner_note.trim() : '' };
+      const q = Number.parseInt(o.quote, 10);
+      return { mode: ['chat', 'identity', 'owner'].includes(o.mode) ? o.mode : 'chat', parts, react, quote: Number.isInteger(q) && q > 0 ? q : 0, note: typeof o.owner_note === 'string' ? o.owner_note.trim() : '' };
     }
   }
   if (!t.startsWith('{')) return { mode: 'chat', parts: [t], react: '', note: '' };
@@ -224,6 +225,11 @@ export async function generateReply(jid, userMessage, history = [], ownerStyleSa
   const canReact = chatMode && st.emojiReactions !== false;
   const canSplit = chatMode && st.splitReplies !== false;
   const stickerReact = chatMode && st.reactToStickers !== false;
+  const quoteChoices = (chatMode && st.quoteReplies === 'smart' && Array.isArray(options.quoteChoices)) ? options.quoteChoices : [];
+  const canQuote = quoteChoices.length >= 2;
+  const quoteText = canQuote ? `QUOTING (WhatsApp swipe-reply): WhatsApp lets you reply to one specific message so the person can see which message you mean. These are the recent messages from this person that you can quote:
+${quoteChoices.map(c => `[${c.n}] "${String(c.text).replace(/"/g, "'")}" (${c.ago})`).join('\n')}
+Set "quote" to the number of the message you are answering ONLY when it really helps: they sent several messages in a row and you are answering a particular one, or they ask about something they said earlier and newer messages came after it. For a normal back-and-forth answer to their latest message, set "quote" to 0. Most replies need no quote.\n` : '';
 
   // Facts for the "is this a new conversation?" decision (the AI decides, we only give it the facts)
   const lastTs = [...(history || [])].reverse().map(h => h && h.timestamp).find(Boolean);
@@ -265,12 +271,12 @@ Keep replies short (1-3 short lines) unless more is needed.
 CONVERSATION STATE: ${gapText}
 GREETINGS AND QUESTIONS: Greet only when the conversation is just starting: the very first message, or when they open a fresh conversation after many hours of silence. If the earlier messages show you already greeted them or asked how they are, do NOT greet again and do NOT ask how they are or how their day is again: just answer what they said. Never ask something they already answered or something you already asked, and do not end every reply with a question; ask one only when it truly moves the chat forward.
 ${canReact ? `REACTIONS: you may react to their message with ONE emoji (put it in "react") when a reaction feels natural (thanks, good news, a joke, agreement, a sticker). If no text reply is needed, set "reply" to "" and only react. Do not react to every message.\n` : ''}${canSplit ? `SPLITTING: if your answer has more than one idea you may send it as up to 3 short WhatsApp messages: make "reply" an array of short strings. Otherwise "reply" is one string.\n` : `Your "reply" must be one single string.\n`}Always stay calm, polite and respectful, whatever the person says. Never get angry, sarcastic, defensive or rude, never argue, and never say anything that could upset or provoke someone (for example never tell an upset person "it's alright if you're angry"). If someone is angry or upset, stay gentle and brief; if it is about ${OWNER}, treat it as an "owner" case. Never repeat or quote lines from ${OWNER}'s past messages. Lines in the conversation that start with [${OWNER} himself] were typed by ${OWNER} personally: use them only to understand the context, never re-send, paraphrase or build on what he said (especially about feelings, apologies, arguments or decisions), and never put square brackets in your reply.
-${outreach}${contactBlock}
+${quoteText}${outreach}${contactBlock}
 ${styleText ? `How ${OWNER} usually writes (manner only; you must never reuse his actual words or lines): ${styleText}\n` : ''}${isNewContact ? 'This is a new contact.' : 'You have chatted with this contact before.'}
 Time: ${timeContext.formatted} - use "${timeContext.greeting}" if you greet.
 
 OUTPUT FORMAT: return ONLY one JSON object and nothing else:
-{"mode":"chat" or "identity" or "owner","reply":"the exact WhatsApp message to send"${canSplit ? ' (or an array of up to 3 short strings)' : ''}${canReact ? ',"react":"one emoji or empty"' : ''},"owner_note":"only for mode owner: one short line telling ${OWNER} what the person wants"}
+{"mode":"chat" or "identity" or "owner","reply":"the exact WhatsApp message to send"${canSplit ? ' (or an array of up to 3 short strings)' : ''}${canReact ? ',"react":"one emoji or empty"' : ''}${canQuote ? ',"quote":"number of the message you answer, or 0"' : ''},"owner_note":"only for mode owner: one short line telling ${OWNER} what the person wants"}
 Earlier assistant messages in the conversation are shown as plain text, but your answer must always be this JSON object.
 `;
   console.log(`🧠 ${isNewContact ? 'NEW' : 'KNOWN'} contact ${jid} - ${BOT} for ${OWNER} (history: ${(history || []).length})`);
@@ -410,7 +416,7 @@ Earlier assistant messages in the conversation are shown as plain text, but your
     if (options.meta) { options.meta.needsOwner = true; options.meta.note = options.meta.note || 'A long number came up in the reply'; }
   }
 
-  if (options.meta) { options.meta.parts = parts; options.meta.react = canReact ? parsed.react : ''; }
+  if (options.meta) { options.meta.parts = parts; options.meta.react = canReact ? parsed.react : ''; options.meta.quote = canQuote && parsed.quote <= quoteChoices.length ? parsed.quote : 0; }
   const reply = parts.join('\n');
   console.log(`✅ Final reply for ${jid}: "${reply.slice(0, 100)}${parsed.react ? '" +' + parsed.react : '"'}`);
   return reply;
