@@ -71,10 +71,20 @@ function parseModelReply(raw) {
   const tryParse = (s) => { try { const o = JSON.parse(s); return o && typeof o === 'object' ? o : null; } catch { return null; } };
   let o = tryParse(t);
   if (!o) { const x = t.indexOf('{'), y = t.lastIndexOf('}'); if (x >= 0 && y > x) o = tryParse(t.slice(x, y + 1)); }
-  if (o && typeof o.reply === 'string' && o.reply.trim()) {
-    return { mode: ['chat', 'identity', 'owner'].includes(o.mode) ? o.mode : 'chat', reply: o.reply.trim(), note: typeof o.owner_note === 'string' ? o.owner_note.trim() : '' };
+  if (o) {
+    let parts = [];
+    if (Array.isArray(o.reply)) parts = o.reply.map(x => String(x || '').trim()).filter(Boolean);
+    else if (typeof o.reply === 'string' && o.reply.trim()) parts = [o.reply.trim()];
+    let react = typeof o.react === 'string' ? o.react.trim() : '';
+    if (react) {
+      try { react = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(react)][0].segment; } catch {}
+      if (!/^\p{Extended_Pictographic}/u.test(react) || react.length > 10) react = '';
+    }
+    if (parts.length || react) {
+      return { mode: ['chat', 'identity', 'owner'].includes(o.mode) ? o.mode : 'chat', parts, react, note: typeof o.owner_note === 'string' ? o.owner_note.trim() : '' };
+    }
   }
-  if (!t.startsWith('{')) return { mode: 'chat', reply: t, note: '' };
+  if (!t.startsWith('{')) return { mode: 'chat', parts: [t], react: '', note: '' };
   return null;
 }
 
@@ -209,6 +219,21 @@ export async function generateReply(jid, userMessage, history = [], ownerStyleSa
   const timeContext = getNigerianTimeContext();
   const OWNER = config.ownerName;
   const BOT = config.assistantName;
+  const st = global.settings || {};
+  const chatMode = !!options.meta;                      // normal WhatsApp chat (not a dashboard test or an agent task)
+  const canReact = chatMode && st.emojiReactions !== false;
+  const canSplit = chatMode && st.splitReplies !== false;
+  const stickerReact = chatMode && st.reactToStickers !== false;
+
+  // Facts for the "is this a new conversation?" decision (the AI decides, we only give it the facts)
+  const lastTs = [...(history || [])].reverse().map(h => h && h.timestamp).find(Boolean);
+  const gapText = (() => {
+    if (!(history || []).length) return 'This is the very first message from this person: there is no earlier chat.';
+    if (!lastTs) return 'This chat already has earlier messages.';
+    const mins = Math.max(0, Math.round((Date.now() - lastTs) / 60000));
+    const ago = mins < 2 ? 'a moment' : mins < 60 ? `${mins} minutes` : mins < 1440 ? `${Math.round(mins / 60)} hours` : `${Math.round(mins / 1440)} days`;
+    return `The previous message in this chat was ${ago} ago.`;
+  })();
 
   const contactBlock = isInternalAgentPrompt ? '' : await buildContactBlock(jid);
   const styleText = await getStyleText();
@@ -223,11 +248,11 @@ PERSONALITY:
 ${config.persona}
 
 LANGUAGE STYLE:
-${config.languageStyle}
+${config.languageStyle}${st.languages ? `\nLanguages you can use: ${st.languages}.` : ''}${st.writingStyle ? `\nWRITING STYLE chosen by ${OWNER}: ${st.writingStyle}` : ''}
 
 YOUR GOALS:
 ${config.goals}
-${config.customRules ? `\nEXTRA RULES:\n${config.customRules}\n` : ''}
+${st.aboutOwner ? `\nFACTS ABOUT ${OWNER} (you may use these when someone asks about him; if something is not covered here, it is an "owner" case and you must never guess):\n${st.aboutOwner}\n` : ''}${config.customRules ? `\nEXTRA RULES:\n${config.customRules}\n` : ''}
 HOW TO REPLY:
 First read the whole conversation so far, then work out what this person means RIGHT NOW. Short replies like "yes", "why?" or "that one" refer to earlier messages. Remember what they already told you, never ask something they already answered, and never repeat yourself.
 Then choose exactly ONE mode:
@@ -237,13 +262,15 @@ Then choose exactly ONE mode:
 Anything about money, bank accounts or payments is always an "owner" case: never share, ask for or agree to anything about money yourself, and never promise anything for ${OWNER}.
 Never be romantic or flirty. You talk to men, women, elders and customers, so never call anyone 'bro', 'sis', 'man', 'ma', 'sir' or 'boss' and do not assume anyone's gender; use their name or no label. Only copy such a word if the contact uses it first.
 Keep replies short (1-3 short lines) unless more is needed.
-Always stay calm, polite and respectful, whatever the person says. Never get angry, sarcastic, defensive or rude, never argue, and never say anything that could upset or provoke someone (for example never tell an upset person "it's alright if you're angry"). If someone is angry or upset, stay gentle and brief; if it is about ${OWNER}, treat it as an "owner" case. Never repeat or quote lines from ${OWNER}'s past messages. Lines in the conversation that start with [${OWNER} himself] were typed by ${OWNER} personally: use them only to understand the context, never re-send, paraphrase or build on what he said (especially about feelings, apologies, arguments or decisions), and never put square brackets in your reply.
+CONVERSATION STATE: ${gapText}
+GREETINGS AND QUESTIONS: Greet only when the conversation is just starting: the very first message, or when they open a fresh conversation after many hours of silence. If the earlier messages show you already greeted them or asked how they are, do NOT greet again and do NOT ask how they are or how their day is again: just answer what they said. Never ask something they already answered or something you already asked, and do not end every reply with a question; ask one only when it truly moves the chat forward.
+${canReact ? `REACTIONS: you may react to their message with ONE emoji (put it in "react") when a reaction feels natural (thanks, good news, a joke, agreement, a sticker). If no text reply is needed, set "reply" to "" and only react. Do not react to every message.\n` : ''}${canSplit ? `SPLITTING: if your answer has more than one idea you may send it as up to 3 short WhatsApp messages: make "reply" an array of short strings. Otherwise "reply" is one string.\n` : `Your "reply" must be one single string.\n`}Always stay calm, polite and respectful, whatever the person says. Never get angry, sarcastic, defensive or rude, never argue, and never say anything that could upset or provoke someone (for example never tell an upset person "it's alright if you're angry"). If someone is angry or upset, stay gentle and brief; if it is about ${OWNER}, treat it as an "owner" case. Never repeat or quote lines from ${OWNER}'s past messages. Lines in the conversation that start with [${OWNER} himself] were typed by ${OWNER} personally: use them only to understand the context, never re-send, paraphrase or build on what he said (especially about feelings, apologies, arguments or decisions), and never put square brackets in your reply.
 ${outreach}${contactBlock}
 ${styleText ? `How ${OWNER} usually writes (manner only; you must never reuse his actual words or lines): ${styleText}\n` : ''}${isNewContact ? 'This is a new contact.' : 'You have chatted with this contact before.'}
 Time: ${timeContext.formatted} - use "${timeContext.greeting}" if you greet.
 
 OUTPUT FORMAT: return ONLY one JSON object and nothing else:
-{"mode":"chat" or "identity" or "owner","reply":"the exact WhatsApp message to send","owner_note":"only for mode owner: one short line telling ${OWNER} what the person wants"}
+{"mode":"chat" or "identity" or "owner","reply":"the exact WhatsApp message to send"${canSplit ? ' (or an array of up to 3 short strings)' : ''}${canReact ? ',"react":"one emoji or empty"' : ''},"owner_note":"only for mode owner: one short line telling ${OWNER} what the person wants"}
 Earlier assistant messages in the conversation are shown as plain text, but your answer must always be this JSON object.
 `;
   console.log(`🧠 ${isNewContact ? 'NEW' : 'KNOWN'} contact ${jid} - ${BOT} for ${OWNER} (history: ${(history || []).length})`);
@@ -253,8 +280,8 @@ Earlier assistant messages in the conversation are shown as plain text, but your
       dynamicSystemPrompt += `\nUSER SENT IMAGE${mediaInfo.caption ? ` caption: "${mediaInfo.caption}"` : ''}. React casually and lightly as assistant.`;
       if (!userMessage || userMessage === '[Image]' || userMessage.startsWith('[Image')) userMessage = mediaInfo.caption || "Thanks for sharing this image 🙂";
     } else if (mediaInfo.type === 'sticker') {
-      dynamicSystemPrompt += `\nUSER SENT STICKER. React lightly with humor, friendly, no flirty tone.`;
-      if (!userMessage || userMessage === '[Sticker]') userMessage = "Nice sticker 😊";
+      dynamicSystemPrompt += stickerReact ? `\nUSER SENT A STICKER${mediaInfo.base64 ? ' (the sticker image is attached)' : ''}. Understand its mood and react with ONE fitting emoji in "react". Leave "reply" empty unless the conversation clearly needs a text answer.` : `\nUSER SENT STICKER. React lightly with humor, friendly, no flirty tone.`;
+      if (!userMessage || userMessage === '[Sticker]' || userMessage.startsWith('[sticker')) userMessage = stickerReact ? '(they sent a sticker)' : "Nice sticker 😊";
     } else if (mediaInfo.type === 'video') {
       if (mediaInfo.transcription) {
         dynamicSystemPrompt += `\nUSER SENT VIDEO with audio: "${mediaInfo.transcription}"${mediaInfo.caption ? ` caption: "${mediaInfo.caption}"` : ''}. Respond casually to content, but if serious/personal -> handoff.`;
@@ -303,7 +330,7 @@ Earlier assistant messages in the conversation are shown as plain text, but your
         else cleaned.push(curr);
       }
       geminiHistory = cleaned;
-      if (imagePartForGemini && mediaInfo?.type === 'image') {
+      if (imagePartForGemini && (mediaInfo?.type === 'image' || (mediaInfo?.type === 'sticker' && stickerReact))) {
         console.log(`🧠 Asking ${modelName} with IMAGE for ${jid} (${isNewContact ? 'NEW' : 'KNOWN'})`);
         const result = await _send(m.generateContent({ contents: [...geminiHistory.map(h => ({ role: h.role, parts: h.parts })), { role: 'user', parts: [{ text: userMessage }, imagePartForGemini] }], generationConfig: { maxOutputTokens: 1024, temperature: 0.6, topP: 0.9, responseMimeType: 'application/json' } }));
         const text = result.response.text();
@@ -364,23 +391,28 @@ Earlier assistant messages in the conversation are shown as plain text, but your
 
   // ===== READ THE MODEL'S DECISION =====
   const parsed = parseModelReply(generatedReply);
-  if (!parsed) {
+  const noText = !parsed || (!parsed.parts.length && !(canReact && parsed.react));
+  if (noText) {
     console.error('⚠️ Could not read AI answer, sending safe fallback:', String(generatedReply).slice(0, 120));
     return `Give me a moment and I'll get back to you shortly 🙂`;
   }
-  let reply = parsed.reply;
-  console.log(`🎯 Mode chosen by AI for ${jid}: ${parsed.mode}`);
+  console.log(`🎯 Mode chosen by AI for ${jid}: ${parsed.mode}${parsed.react ? ' + reaction ' + parsed.react : ''}`);
   if (parsed.mode === 'owner' && options.meta) { options.meta.needsOwner = true; options.meta.note = parsed.note || ''; }
 
+  let parts = parsed.parts.map(p => (p.length > 700 ? p.slice(0, 650) + '...' : p));
+  if (!canSplit && parts.length > 1) parts = [parts.join('\n')];
+  parts = parts.slice(0, 3);
+
   // One safety net that is NOT about words: never send out a long number (like a bank account number).
-  if (/\d{9,}/.test(reply.replace(/[\s-]/g, ''))) {
+  if (parts.some(p => /\d{9,}/.test(p.replace(/[\s-]/g, '')))) {
     console.log(`🛡️ Reply contained a long number, replaced with a safe answer for ${jid}`);
-    reply = `Let me check with ${OWNER} and get back to you on that.`;
+    parts = [`Let me check with ${OWNER} and get back to you on that.`];
     if (options.meta) { options.meta.needsOwner = true; options.meta.note = options.meta.note || 'A long number came up in the reply'; }
   }
 
-  if (reply.length > 700) reply = reply.slice(0, 650) + '...';
-  console.log(`✅ Final reply for ${jid}: "${reply.slice(0, 100)}..."`);
+  if (options.meta) { options.meta.parts = parts; options.meta.react = canReact ? parsed.react : ''; }
+  const reply = parts.join('\n');
+  console.log(`✅ Final reply for ${jid}: "${reply.slice(0, 100)}${parsed.react ? '" +' + parsed.react : '"'}`);
   return reply;
 }
 

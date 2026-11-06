@@ -9,6 +9,7 @@ import { RELATIONSHIP_OPTIONS, generateReply, refreshStyleProfile, parseOwnerCom
 import { extractOwnerStyleFromExport } from './import.js';
 import fs from 'fs';
 import { trackChat } from './chats.js';
+import { loadSettings, updateSettings, TYPING_MS_PER_CHAR } from './settings.js';
 import { startSchedulers, runSchedule, newScheduleId, localNow } from './schedules.js';
 import { recordExchange, startSummaryScheduler, sendSummary, buildSummary, summaryInfo } from './summary.js';
 import { getAgentManager, parseAgentCommand, parseNaturalAgentIntent, extractNumbersFromVcard, extractNumbersRobust } from './agent.js';
@@ -46,6 +47,8 @@ global.botPaused = false;
 global.pairing = null;
 global.manualConnect = false;
 global.contactNames = new Map(); // jid -> saved WhatsApp contact name
+global.replyTimes = [];                // timestamps of replies in the last hour (global limit)
+loadSettings();                        // dashboard settings (also loaded again when the bot starts)
 const LOG_MAX = 400;
 const logBuffer = [];
 let logSeq = 0;
@@ -104,7 +107,7 @@ async function getAvatar(jid) {
   if (!sock || global.botStatus !== 'connected') return c || null;
   let entry = { none: true, ts: Date.now() };
   try {
-    const url = await sock.profilePictureUrl(jid, 'preview');
+    const url = await sock.profilePictureUrl(jid, 'image');   // full size (the 'preview' size looks blurry)
     if (url) {
       const r = await fetch(url);
       if (r.ok) entry = { buf: Buffer.from(await r.arrayBuffer()), type: r.headers.get('content-type') || 'image/jpeg', ts: Date.now() };
@@ -188,6 +191,9 @@ async function handleApi(req, res, reqPath) {
       const p = await mem.getStyleProfile();
       return sendJson(res, 200, { text: (p && p.text) || '', updated: (p && p.updated) || 0, count: (p && p.count) || 0 });
     }
+    if (reqPath === '/api/settings') {
+      return sendJson(res, 200, { settings: global.settings });
+    }
     if (reqPath === '/api/logs') {
       const since = parseInt(new URL(req.url, 'http://localhost').searchParams.get('since') || '0', 10);
       return sendJson(res, 200, { logs: logBuffer.filter(l => l.id > since) });
@@ -247,6 +253,10 @@ async function handleApi(req, res, reqPath) {
       if (!sch) return sendJson(res, 404, { error: 'Schedule not found' });
       const text = await runSchedule(sock, sch, { markSent: false });
       return sendJson(res, 200, { ok: true, text });
+    }
+    if (reqPath === '/api/settings/save') {
+      const saved = await updateSettings(body && typeof body === 'object' ? body : {});
+      return sendJson(res, 200, { ok: true, settings: saved });
     }
     if (reqPath === '/api/pause') {
       await setPaused(!!body.paused);
@@ -499,6 +509,7 @@ async function setPaused(v) {
 
 async function notifyOwner(text) {
   try {
+    if (global.settings && global.settings.alerts === false) return;
     if (!sock || global.botStatus !== 'connected') return;
     await sock.sendMessage(`${config.phoneNumber}@s.whatsapp.net`, { text });
   } catch (e) { console.warn('notifyOwner failed: ' + e.message); }
@@ -522,6 +533,9 @@ async function logWhilePaused(msg) {
 // If several messages from one person are waiting, only the LAST one gets a reply (it sees all of them in history).
 const jidChains = new Map();
 const jidPending = new Map();
+const jidLastArrival = new Map();   // when this person last sent something (for the quiet window)
+const lastReaction = new Map();     // when the AI last reacted to this person
+const sleepMs = (ms) => new Promise(r => setTimeout(r, ms));
 function enqueueMessage(msg) {
   const jid = msg.key.remoteJid;
   if (!jid) return;
@@ -529,6 +543,7 @@ function enqueueMessage(msg) {
   if (msg.key.fromMe) { run(); return; } // owner's own messages must never wait behind a bot reply
   if (global.botPaused) { logWhilePaused(msg); return; }
   global.stats.received++;
+  jidLastArrival.set(jid, Date.now());
   jidPending.set(jid, (jidPending.get(jid) || 0) + 1);
   const prev = jidChains.get(jid) || Promise.resolve();
   const next = prev.then(run).finally(() => {
@@ -553,6 +568,7 @@ async function startBot() {
     console.log(`🚀 WhatsApp AI Bot - Ghost + Style + Import + Media + SUPER AGENT [${instanceId}]`);
     console.log('='.repeat(60));
     memory = await getMemoryStore();
+    await loadSettings();
     try { global.botPaused = await memory.getBotPaused(); if (global.botPaused) console.log('⏸ Bot is PAUSED (saved setting). Tap Resume on the dashboard Home screen to turn it back on.'); } catch {}
     auth = await createAuthState();
     
@@ -746,6 +762,23 @@ async function handleMessage(msg) {
     } catch (e) { console.warn('botOff check failed:', e.message); }
   }
 
+  // Quiet hours: during these hours messages are saved but not answered
+  if (!isFromMe && !isSelfChat && !jid.endsWith('@g.us') && global.settings.quietHoursEnabled) {
+    try {
+      const q = global.settings;
+      const nowMin = localNow().minutes;
+      const f = parseInt(q.quietFrom.slice(0, 2), 10) * 60 + parseInt(q.quietFrom.slice(3), 10);
+      const t = parseInt(q.quietTo.slice(0, 2), 10) * 60 + parseInt(q.quietTo.slice(3), 10);
+      const inQuiet = f <= t ? (nowMin >= f && nowMin < t) : (nowMin >= f || nowMin < t);
+      if (inQuiet) {
+        const txt = messageContent || (mediaInfo ? `[${mediaInfo.type}]` : '');
+        if (txt) await memory.addMessage(jid, 'user', txt);
+        console.log(`🌙 Quiet hours: saved the message from ${msg.pushName || jid.split('@')[0]}, not answering`);
+        return;
+      }
+    } catch {}
+  }
+
   // Document import
   if (isFromMe && m?.documentMessage) {
     try {
@@ -882,7 +915,7 @@ async function handleMessage(msg) {
       const cmd = parseOwnerCommand(messageContent);
       if (cmd) { await handleOwnerCommand(cmd, jid); return; }
       if (messageContent && !messageContent.startsWith('/')) {
-        await memory.addOwnerMessage(jid, messageContent);
+        if (global.settings.learnFromReplies) await memory.addOwnerMessage(jid, messageContent);
         await memory.addMessage(jid, 'assistant', `[${config.ownerName} himself] ${messageContent}`);
         console.log(`📝 Learned YOUR style for ${contactName}: "${messageContent.slice(0,50)}..."`);
       }
@@ -954,10 +987,26 @@ async function handleMessage(msg) {
   try {
     const historyText = messageContent || (mediaInfo ? `[${mediaInfo.type} ${mediaInfo.caption ? ': ' + mediaInfo.caption : ''}]` : '');
     await memory.addMessage(jid, 'user', historyText);
-    if ((jidPending.get(jid) || 0) > 1 && !mediaInfo) {
-      console.log(`⏭️ Newer message from ${contactName} already waiting - it will answer for both`);
-      return;
+    const pendingAtStart = jidPending.get(jid) || 0;
+    const settingsNow = global.settings;
+
+    // Answer together: wait until the person has stopped typing (quiet window), then reply once to everything they sent.
+    // One by one: no waiting, every message gets its own reply, in order.
+    if (settingsNow.burstBatching && !mediaInfo) {
+      const quiet = settingsNow.quietSeconds * 1000;
+      const started = Date.now();
+      while (true) {
+        if ((jidPending.get(jid) || 0) > 1) { console.log(`⏭️ ${contactName} sent more: the next message will answer for all of them`); return; }
+        const since = Date.now() - (jidLastArrival.get(jid) || 0);
+        if (since >= quiet || Date.now() - started >= 20000) break;
+        await sleepMs(Math.min(400, quiet - since + 50));
+      }
     }
+
+    // Global limit: stop replying if the bot already sent too many replies this hour
+    global.replyTimes = global.replyTimes.filter(t => t > Date.now() - 3600 * 1000);
+    if (global.replyTimes.length >= settingsNow.maxPerHourGlobal) { console.log(`🚦 Global limit of ${settingsNow.maxPerHourGlobal} replies/hour reached: not answering ${contactName}`); return; }
+    if (settingsNow.humanTyping) { sock.readMessages([msg.key]).catch(() => {}); }
     const history = await memory.getHistory(jid);
     const ownerStyle = await memory.getOwnerStyle(jid);
     const ownerStyleTexts = ownerStyle.map(s => s.content);
@@ -965,9 +1014,8 @@ async function handleMessage(msg) {
 
     // ===== HUMAN-LIKE TIMING: Seen delay (no typing yet) =====
     // Real person glances at phone after random gap, not instantly
-    const isMediaMessage = !!(mediaInfo && ['image', 'video', 'voice', 'audio', 'sticker'].includes(mediaInfo.type));
-    const seenDelay = getSeenDelay(isMediaMessage);
-    await delay(seenDelay);
+    const wantedDelayMs = Math.round((settingsNow.delayMin + Math.random() * Math.max(0, settingsNow.delayMax - settingsNow.delayMin)) * 1000);
+    const delayStartedAt = Date.now();
 
     let mediaForAI = null;
     let transcribedText = null;
@@ -1021,58 +1069,43 @@ async function handleMessage(msg) {
     const aiMeta = {};
     const aiReply = await generateReply(jid, finalMessageForAI, history.slice(0, -1), ownerStyleTexts, mediaForAI, { meta: aiMeta });
 
-    // ===== HUMAN-LIKE TYPING: Duration matches message length =====
-    // Only show typing indicator AFTER we have reply, and for duration matching length
-    // This feels like real person typing, not bot instantly responding
-    const thinkingGap = getThinkingGap();
-    await delay(thinkingGap);
-    
-    // Start typing indicator
-    await sock.sendPresenceUpdate('composing', jid);
-    const typingDuration = getTypingDuration(aiReply.startsWith('__HANDOFF__') ? aiReply.replace('__HANDOFF__', '').split('__REASON__')[0].trim() : aiReply);
-    await delay(typingDuration);
+    // ===== SEND: wait the delay you chose, react, then send 1-3 message parts =====
+    const ms = TYPING_MS_PER_CHAR[settingsNow.typingSpeed] || 30;
+    const typingMs = (text) => Math.round(Math.min(9000, Math.max(500, text.length * ms)) * (0.85 + Math.random() * 0.3));
+    await delay(Math.max(0, wantedDelayMs - (Date.now() - delayStartedAt)));   // AI time counts toward the delay
 
-    // ===== NEW: HANDLE AUTO-HANDOFF FOR SERIOUS/PERSONAL/FINANCIAL TOPICS =====
-    if (aiReply.startsWith('__HANDOFF__')) {
-      const handoffMsg = aiReply.replace('__HANDOFF__', '').split('__REASON__')[0].trim();
-      const reason = aiReply.includes('__REASON__') ? aiReply.split('__REASON__')[1].trim() : 'Serious/personal topic';
-      console.log(`⚠️ HANDOFF triggered for ${contactName} (${jid}) - Reason: ${reason}`);
-      
-      // Set handoff to pause bot for this contact
-      try {
-        await memory.clearLastDisclosure(jid); // Next reply after handoff should disclose again
-      } catch {}
-      
-      // Send handoff message to contact (transparent assistant) - ensure no __HANDOFF__ leak
-      const cleanHandoffMsg = handoffMsg.replace('__HANDOFF__', '').trim();
-      await sock.sendMessage(jid, { text: cleanHandoffMsg });
-      console.log(`📤 Handoff message sent to ${contactName}: ${handoffMsg.slice(0,100)}...`);
-      await memory.addMessage(jid, 'assistant', handoffMsg);
-      recordExchange({ jid, name: contactName, incoming: messageContent, reply: cleanHandoffMsg, handoff: true, reason });
-      trackChat(jid, { role: 'bot', text: cleanHandoffMsg });
-      
-      // Notify owner via self-chat
-      try {
-        const ownerJid = `${config.phoneNumber}@s.whatsapp.net`;
-        const notifyMsg = `⚠️ *Handoff Alert*\n\nContact: ${contactName} (${jid.split('@')[0]})\nReason: ${reason}\nLast message: "${(messageContent || '').slice(0,200)}"
+    const parts = (aiMeta.parts && aiMeta.parts.length) ? aiMeta.parts : (aiReply ? [aiReply] : []);
 
-Please reply directly, this sounds important/personal.\n\n_This contact needs YOU, not assistant._`;
-        await sock.sendMessage(ownerJid, { text: notifyMsg });
-        console.log(`🔔 Owner notified about handoff for ${jid}`);
-      } catch (e) {
-        console.error(`Failed to notify owner about handoff: ${e.message}`);
+    if (aiMeta.react && settingsNow.emojiReactions) {
+      const isSticker = !!(mediaInfo && mediaInfo.type === 'sticker');
+      const waitMs = isSticker ? 60 * 1000 : 15 * 60 * 1000;   // max 1 reaction per 15 min per person (1 per minute for stickers)
+      if (Date.now() - (lastReaction.get(jid) || 0) >= waitMs) {
+        try {
+          await sock.sendMessage(jid, { react: { text: aiMeta.react, key: msg.key } });
+          lastReaction.set(jid, Date.now());
+          global.stats.replied++;
+          global.replyTimes.push(Date.now());
+          trackChat(jid, { role: 'bot', text: `(reacted ${aiMeta.react})` });
+          console.log(`😀 Reacted ${aiMeta.react} to ${contactName}`);
+        } catch (e) { console.warn('Reaction failed: ' + e.message); }
       }
-      
-      await sock.sendPresenceUpdate('paused', jid);
-      return;
     }
+    if (!parts.length) { return; }   // reaction only
 
-    await sock.sendMessage(jid, { text: aiReply });
+    const quote = (!settingsNow.burstBatching && pendingAtStart > 1) ? { quoted: msg } : undefined;
+    for (let k = 0; k < parts.length; k++) {
+      if (settingsNow.humanTyping) { await sock.sendPresenceUpdate('composing', jid); await delay(typingMs(parts[k])); }
+      await sock.sendMessage(jid, { text: parts[k] }, k === 0 && quote ? quote : undefined);
+      if (settingsNow.humanTyping) await sock.sendPresenceUpdate('paused', jid);
+      trackChat(jid, { role: 'bot', text: parts[k] });
+      if (k < parts.length - 1) await delay(getRandomInt(600, 1500));
+    }
+    const sentText = parts.join('\n');
     global.stats.replied++;
-    console.log(`🤖 Assistant replied to ${contactName}: ${aiReply.slice(0,100)}...`);
-    await memory.addMessage(jid, 'assistant', aiReply);
-    recordExchange({ jid, name: contactName, incoming: messageContent, reply: aiReply });
-    trackChat(jid, { role: 'bot', text: aiReply });
+    global.replyTimes.push(Date.now());
+    console.log(`🤖 Assistant replied to ${contactName}${parts.length > 1 ? ` (${parts.length} parts)` : ''}: ${sentText.slice(0,100)}...`);
+    await memory.addMessage(jid, 'assistant', sentText);
+    recordExchange({ jid, name: contactName, incoming: messageContent, reply: sentText });
     if (aiMeta.needsOwner) notifyOwner(`🙋 *Needs you*
 
 ${contactName} (+${jid.split('@')[0]})${aiMeta.note ? ': ' + aiMeta.note : ' needs you'}

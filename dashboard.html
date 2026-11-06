@@ -51,6 +51,14 @@
   button.btn.primary { background:linear-gradient(135deg,#1ee3c0,#12b79d); color:#04201b; border-color:transparent; }
   button.btn.danger { background:var(--redBg); color:var(--red); border-color:transparent; }
   button.btn:disabled { opacity:.5; }
+  select { width:100%; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:12px; padding:12px; font-size:15px; font-family:inherit; }
+  .setgroup { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:16px; margin-bottom:14px; box-shadow:var(--shadow); }
+  .setgroup h3 { margin:0 0 4px; font-size:19px; }
+  .setgroup > .small { margin-bottom:12px; }
+  .setrow { display:flex; justify-content:space-between; align-items:center; gap:12px; background:var(--bg); border:1px solid var(--line); border-radius:14px; padding:13px 14px; margin-bottom:10px; }
+  .setrow b { display:block; font-size:16px; }
+  .setrow .small { margin-top:2px; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   input, textarea { width:100%; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:12px; padding:12px; font-size:15px; font-family:inherit; }
   label { display:block; font-size:12px; color:var(--muted); margin:10px 0 5px; }
   .msg { font-size:13px; margin-top:8px; min-height:1px; }
@@ -305,13 +313,65 @@
     <!-- SETTINGS -->
     <section id="v-settings" class="view">
       <h2 class="h">Settings</h2>
+
+      <div class="setgroup">
+        <h3>Natural replies &amp; pacing</h3>
+        <div class="small muted">Delays, batching, split answers and reactions so the replies feel human.</div>
+        <div class="setrow"><div><b>Human-like typing</b><div class="small muted">Mark the message as read and show “typing…” based on the reply length</div></div><label class="switch"><input type="checkbox" id="stHuman"><span class="slider"></span></label></div>
+        <label>Typing speed</label>
+        <select id="stSpeed"><option value="fast">Fast (~30 ms per character)</option><option value="normal">Normal (~55 ms per character)</option><option value="slow">Slow (~85 ms per character)</option></select>
+        <label>Reply delay in seconds (the AI waits a random time between these two numbers)</label>
+        <div class="two"><input id="stDelayMin" type="number" min="0" max="60" step="0.5" placeholder="Min"><input id="stDelayMax" type="number" min="0" max="120" step="0.5" placeholder="Max"></div>
+        <div class="setrow" style="margin-top:12px"><div><b>Answer together (burst batching)</b><div class="small muted">ON: wait until the person stops typing, then answer everything in one reply. OFF: answer every message one by one, in order.</div></div><label class="switch"><input type="checkbox" id="stBurst"><span class="slider"></span></label></div>
+        <label>Quiet window before replying (2–12 seconds, never more than 20 seconds in total)</label>
+        <input id="stQuiet" type="number" min="2" max="12" step="1">
+        <div class="setrow" style="margin-top:12px"><div><b>Split replies</b><div class="small muted">Send longer answers as 1–3 short messages with natural pauses</div></div><label class="switch"><input type="checkbox" id="stSplit"><span class="slider"></span></label></div>
+        <div class="setrow"><div><b>Emoji reactions</b><div class="small muted">React with an emoji instead of texting when it fits (max 1 per 15 minutes per person)</div></div><label class="switch"><input type="checkbox" id="stReact"><span class="slider"></span></label></div>
+        <div class="setrow"><div><b>React to stickers</b><div class="small muted">When someone sends a sticker, the AI reacts with a fitting emoji</div></div><label class="switch"><input type="checkbox" id="stSticker"><span class="slider"></span></label></div>
+        <div class="two">
+          <div><label>Max replies per hour (per person)</label><input id="stMaxC" type="number" min="1" max="1000"></div>
+          <div><label>Max replies per hour (everyone)</label><input id="stMaxG" type="number" min="1" max="5000"></div>
+        </div>
+      </div>
+
+      <div class="setgroup">
+        <h3>You &amp; the AI</h3>
+        <div class="small muted">What the AI knows about you and how it talks.</div>
+        <label>How the AI refers to you (your first name)</label>
+        <input id="stOwner" maxlength="40">
+        <label>The AI's own name</label>
+        <input id="stBot" maxlength="40">
+        <label>About you (facts the AI may share when people ask about you)</label>
+        <textarea id="stAbout" rows="5" maxlength="1500" placeholder="What you do, your business, where you are, services, prices, working hours…"></textarea>
+        <label>Languages spoken</label>
+        <input id="stLang" maxlength="120" placeholder="English, Krio">
+        <label>Writing style</label>
+        <input id="stStyle" maxlength="300" placeholder="Short, warm, natural, respectful and direct.">
+        <label>Personality (how the AI talks)</label>
+        <textarea id="stPersona" rows="3" maxlength="800"></textarea>
+        <label>Goals (what the AI is here to do)</label>
+        <textarea id="stGoals" rows="3" maxlength="800"></textarea>
+      </div>
+
+      <div class="setgroup">
+        <h3>Alerts, learning &amp; schedule</h3>
+        <div class="setrow"><div><b>WhatsApp alerts</b><div class="small muted">Message me on WhatsApp when a contact needs me</div></div><label class="switch"><input type="checkbox" id="stAlerts"><span class="slider"></span></label></div>
+        <div class="setrow"><div><b>Learn from my replies</b><div class="small muted">Learn how I write (never my actual sentences) when I text people myself</div></div><label class="switch"><input type="checkbox" id="stLearn"><span class="slider"></span></label></div>
+        <div class="setrow"><div><b>Daily summary</b><div class="small muted">Send me a summary of the day on WhatsApp every night</div></div><label class="switch"><input type="checkbox" id="stSumOn"><span class="slider"></span></label></div>
+        <label>Daily summary hour (0–23, your timezone)</label>
+        <input id="stSumHour" type="number" min="0" max="23" step="1">
+        <div class="setrow" style="margin-top:12px"><div><b>Quiet hours</b><div class="small muted">Between these times messages are saved but the AI does not answer</div></div><label class="switch"><input type="checkbox" id="stQuietOn"><span class="slider"></span></label></div>
+        <div class="two"><div><label>From</label><input id="stQFrom" type="time"></div><div><label>Until</label><input id="stQTo" type="time"></div></div>
+      </div>
+
+      <button class="btn primary" style="width:100%;padding:15px;font-size:16px" onclick="saveSettings()">💾 Save settings</button>
+      <div id="stMsg" class="msg" style="margin-bottom:14px"></div>
+
       <h3 class="sec">Appearance</h3>
       <div class="card toggle"><div><b>Theme</b><div class="small muted" id="themeName">Dark</div></div><button class="btn" onclick="toggleTheme()">Switch</button></div>
-      <h3 class="sec">Identity</h3>
+      <h3 class="sec">System info (read-only)</h3>
       <div class="card"><div class="kv" id="setIdentity"></div></div>
-      <h3 class="sec">Behaviour</h3>
       <div class="card"><div class="kv" id="setBehaviour"></div></div>
-      <div class="small muted" style="margin:6px 4px 14px">To change these, edit the variables in Render → your service → Environment (OWNER_NAME, ASSISTANT_NAME, PERSONA, GOALS, TIMEZONE, LOCATION, HUMAN_DELAYS, SUMMARY_HOUR…). Render restarts the bot automatically.</div>
       <h3 class="sec">How the AI writes like you</h3>
       <div class="card">
         <div id="styleText" class="small">Loading…</div>
@@ -460,7 +520,7 @@ function show(v) {
   document.querySelectorAll('nav.bottom .nv').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); });
   $('main').scrollTop = 0;
   if (v === 'chats' || v === 'home') loadChats();
-  if (v === 'settings') loadStyle();
+  if (v === 'settings') { loadStyle(); loadSettings(); }
 }
 
 /* ---------- login ---------- */
@@ -691,6 +751,38 @@ function runScheduleNow(id) {
   flash('scMsg', 'Writing and sending now…', true);
   api('/api/schedule/run', { method: 'POST', body: JSON.stringify({ id: id }) }).then(function (r) { flash('scMsg', 'Sent: “' + r.text + '”', true); loadChat(false); })
     .catch(function (e) { flash('scMsg', e.message || 'Failed', false); });
+}
+
+/* ---------- settings ---------- */
+var SETTING_FIELDS = [
+  ['stHuman', 'humanTyping', 'bool'], ['stSpeed', 'typingSpeed', 'str'], ['stDelayMin', 'delayMin', 'num'], ['stDelayMax', 'delayMax', 'num'],
+  ['stBurst', 'burstBatching', 'bool'], ['stQuiet', 'quietSeconds', 'num'], ['stSplit', 'splitReplies', 'bool'], ['stReact', 'emojiReactions', 'bool'],
+  ['stSticker', 'reactToStickers', 'bool'], ['stMaxC', 'maxPerHourContact', 'num'], ['stMaxG', 'maxPerHourGlobal', 'num'],
+  ['stOwner', 'ownerName', 'str'], ['stBot', 'assistantName', 'str'], ['stAbout', 'aboutOwner', 'str'], ['stLang', 'languages', 'str'],
+  ['stStyle', 'writingStyle', 'str'], ['stPersona', 'persona', 'str'], ['stGoals', 'goals', 'str'],
+  ['stAlerts', 'alerts', 'bool'], ['stLearn', 'learnFromReplies', 'bool'], ['stSumOn', 'summaryEnabled', 'bool'], ['stSumHour', 'summaryHour', 'num'],
+  ['stQuietOn', 'quietHoursEnabled', 'bool'], ['stQFrom', 'quietFrom', 'str'], ['stQTo', 'quietTo', 'str']
+];
+function fillSettings(s) {
+  SETTING_FIELDS.forEach(function (f) {
+    var el = $(f[0]); if (!el || s[f[1]] === undefined) return;
+    if (f[2] === 'bool') el.checked = !!s[f[1]]; else el.value = s[f[1]];
+  });
+}
+function loadSettings() {
+  api('/api/settings').then(function (r) { fillSettings(r.settings); }).catch(function (e) { if (e.auth) showLogin('Wrong admin key.'); });
+}
+function saveSettings() {
+  var body = {};
+  SETTING_FIELDS.forEach(function (f) {
+    var el = $(f[0]); if (!el) return;
+    if (f[2] === 'bool') body[f[1]] = el.checked; else if (f[2] === 'num') body[f[1]] = el.value === '' ? undefined : Number(el.value); else body[f[1]] = el.value;
+  });
+  if (Number(body.delayMax) < Number(body.delayMin)) { flash('stMsg', 'The maximum delay must not be smaller than the minimum.', false); return; }
+  flash('stMsg', 'Saving…', true);
+  api('/api/settings/save', { method: 'POST', body: JSON.stringify(body) }).then(function (r) {
+    fillSettings(r.settings); flash('stMsg', 'Saved ✓ The bot uses the new settings right away.', true); tick();
+  }).catch(function (e) { flash('stMsg', e.message || 'Failed', false); });
 }
 
 /* ---------- learned writing style ---------- */

@@ -10,7 +10,7 @@ class MemoryStore {
     if (!this.isRedis && !fs.existsSync(this.localDir)) {
       fs.mkdirSync(this.localDir, { recursive: true });
     }
-    this.maxHistory = parseInt(process.env.MAX_HISTORY || '20', 10);
+    this.maxHistory = parseInt(process.env.MAX_HISTORY || '30', 10);
     this.maxOwnerSamples = 50; // how many of YOUR messages to remember per contact to learn style
   }
 
@@ -139,7 +139,7 @@ class MemoryStore {
 
   // ---------- RATE LIMIT ----------
   async isRateLimited(jid) {
-    const maxPerHour = parseInt(process.env.MAX_PER_HOUR || '30', 10);
+    const maxPerHour = (global.settings && global.settings.maxPerHourContact) || parseInt(process.env.MAX_PER_HOUR || '60', 10);
     const key = this._key(jid, 'ratelimit');
     try {
       if (this.isRedis) {
@@ -539,6 +539,23 @@ class MemoryStore {
         if (paused) fs.writeFileSync(f, '1'); else if (fs.existsSync(f)) fs.unlinkSync(f);
       }
     } catch (e) { console.warn('setBotPaused error:', e.message); }
+  }
+
+  // ---------- DASHBOARD SETTINGS ----------
+  async getSettings() {
+    try {
+      if (this.isRedis) {
+        const raw = await this.redis.get('bot:settings');
+        return raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
+      }
+      const f = path.join(this.localDir, 'bot_settings.json');
+      return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf-8')) : null;
+    } catch { return null; }
+  }
+
+  async setSettings(obj) {
+    if (this.isRedis) await this.redis.set('bot:settings', JSON.stringify(obj));
+    else fs.writeFileSync(path.join(this.localDir, 'bot_settings.json'), JSON.stringify(obj));
   }
 
   // ---------- CONTACT INDEX + CHAT LOG (powers the dashboard Chats tab) ----------
