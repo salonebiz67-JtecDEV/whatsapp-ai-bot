@@ -99,7 +99,7 @@
   /* ---------- chats list ---------- */
   .chat { display:flex; gap:12px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:18px; padding:14px; margin-bottom:10px; cursor:pointer; box-shadow:var(--shadow); }
   .chat:active { background:var(--card2); }
-  .av { overflow:hidden; background-size:cover; background-position:center; width:50px; height:50px; border-radius:50%; background:var(--bg); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-weight:800; color:var(--accent); font-size:17px; flex:none; }
+  .av { overflow:hidden; width:50px; height:50px; border-radius:50%; background:var(--bg); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-weight:800; color:var(--accent); font-size:17px; flex:none; }
   .cbody { flex:1; min-width:0; }
   .crow { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
   .cname { font-weight:700; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -114,6 +114,7 @@
   /* ---------- chat detail ---------- */
   .detail { position:fixed; inset:0; background:var(--bg); z-index:40; display:flex; flex-direction:column; }
   .dhead { display:flex; align-items:center; gap:10px; padding:calc(10px + env(safe-area-inset-top)) 12px 10px; background:var(--bg2); border-bottom:1px solid var(--line); }
+  .av { background-size:cover; background-position:center; background-repeat:no-repeat; }
   .dhead .av { width:42px; height:42px; font-size:15px; }
   .dtitle { flex:1; min-width:0; }
   .dtitle b { display:block; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -133,9 +134,10 @@
   .nbadge { position:absolute; top:4px; left:calc(50% + 6px); min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--red); color:#fff; font-size:11px; font-weight:800; display:flex; align-items:center; justify-content:center; }
   .qitem { border-left:3px solid var(--amber); }
   .tcard .ans { white-space:pre-wrap; margin:6px 0; }
-  nav.bottom { position:fixed; left:0; right:0; bottom:0; height:calc(72px + env(safe-area-inset-bottom)); padding-bottom:env(safe-area-inset-bottom); background:var(--bg2); border-top:1px solid var(--line); display:grid; grid-template-columns:1fr 1fr 1fr 1.15fr 1fr 1fr; align-items:end; z-index:30; }
-  .nv { background:none; border:none; color:var(--muted); font-size:12px; font-weight:600; display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 0 12px; cursor:pointer; font-family:inherit; }
-  .nv svg { width:26px; height:26px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  nav.bottom { position:fixed; left:0; right:0; bottom:0; height:calc(72px + env(safe-area-inset-bottom)); padding-bottom:env(safe-area-inset-bottom); background:var(--bg2); border-top:1px solid var(--line); display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)) 76px repeat(3, minmax(0, 1fr)); align-items:end; z-index:30; }
+  .nv { background:none; border:none; color:var(--muted); font-size:clamp(9.5px, 2.8vw, 11.5px); font-weight:600; display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 0 12px; cursor:pointer; font-family:inherit; min-width:0; }
+  .nv > span { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .nv svg { width:24px; height:24px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
   .nv.on { color:var(--accent); }
   .nv.fab { position:relative; }
   .fabbtn { position:absolute; top:-26px; width:62px; height:62px; border-radius:50%; background:linear-gradient(135deg,#1ee3c0,#0fa88f); display:flex; align-items:center; justify-content:center; box-shadow:0 8px 24px rgba(25,211,176,.45); border:4px solid var(--bg2); }
@@ -287,6 +289,29 @@
         <div class="row" style="margin-top:12px"><button class="btn primary grow" onclick="saveCardForm()">Save answer</button><button id="cCancel" class="btn hidden" onclick="resetCardForm()">Cancel</button></div>
         <div id="cMsg" class="msg"></div>
       </div>
+    </section>
+
+    <!-- SCHEDULED -->
+    <section id="v-sched" class="view">
+      <h2 class="h">Scheduled messages</h2>
+      <div class="small muted" style="margin:-6px 2px 12px">Messages the AI sends by itself, on the days and time you choose. It writes a fresh message each time, from your rough idea.</div>
+      <div class="card">
+        <label style="margin-top:0">Who should get it?</label>
+        <select id="sContact"></select>
+        <div id="sNoContacts" class="small muted hidden" style="margin-top:6px">No chats yet. Type their number below.</div>
+        <label>Or type a number (country code, no +)</label>
+        <input id="sNumber" inputmode="numeric" placeholder="23276123456">
+        <label>What time? (your timezone)</label>
+        <input id="sTime" type="time" value="07:30">
+        <label>Which days? (none selected = every day)</label>
+        <div id="sDays" class="chips"></div>
+        <label>What should it say? (a rough idea is fine)</label>
+        <textarea id="sText" rows="3" maxlength="600" placeholder="Say salam alaikum, greet him and ask how he is doing"></textarea>
+        <div class="row" style="margin-top:12px"><button class="btn primary grow" onclick="addSched()">Add daily message</button></div>
+        <div id="sMsg" class="msg"></div>
+      </div>
+      <h3 class="sec">All scheduled messages <span id="sCount" class="badge rel">0</span></h3>
+      <div id="sList"></div>
     </section>
 
     <section id="v-dash" class="view">
@@ -469,6 +494,7 @@
     <button class="nv" data-v="chats" onclick="show('chats')"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/></svg><span>Chats</span></button>
     <button class="nv" data-v="teach" onclick="show('teach')"><svg viewBox="0 0 24 24"><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v17H6.5A2.5 2.5 0 0 0 4 21.5z"/><path d="M4 21.5V4.5"/><path d="M9 7h7M9 11h5"/></svg><span>Teach me</span><span id="teachBadge" class="nbadge hidden">0</span></button>
     <button class="nv fab" data-v="link" onclick="show('link')"><span class="fabbtn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></span><span class="lbl">Link</span></button>
+    <button class="nv" data-v="sched" onclick="show('sched')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg><span>Scheduled</span></button>
     <button class="nv" data-v="dash" onclick="show('dash')"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Dashboard</span></button>
     <button class="nv" data-v="settings" onclick="show('settings')"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><span>Settings</span></button>
   </nav>
@@ -512,7 +538,7 @@ function initials(name) {
 }
 function mk(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 /* ---------- WhatsApp profile pictures ---------- */
-function applyAv(el, url) { el.style.backgroundImage = 'url(' + url + ')'; el.textContent = ''; }
+function applyAv(el, url) { el.style.backgroundImage = 'url(' + url + ')'; el.style.backgroundSize = 'cover'; el.style.backgroundPosition = 'center'; el.style.backgroundRepeat = 'no-repeat'; el.textContent = ''; }
 function setAvatar(el, jid) {
   var c = avatarCache[jid];
   if (c && c.url) { applyAv(el, c.url); return; }
@@ -524,7 +550,7 @@ function pumpAvatars() {
   while (avatarActive < 3 && avatarQueue.length) {
     var jid = avatarQueue.shift(); avatarActive++;
     (function (jid) {
-      fetch('/api/avatar?jid=' + encodeURIComponent(jid), { headers: { 'x-admin-key': KEY } })
+      fetch('/api/avatar?v=3&jid=' + encodeURIComponent(jid), { headers: { 'x-admin-key': KEY } })
         .then(function (r) { if (!r.ok) throw new Error('none'); return r.blob(); })
         .then(function (b) { var u = URL.createObjectURL(b); avatarCache[jid] = { url: u }; (avatarPending[jid] || []).forEach(function (el) { applyAv(el, u); }); })
         .catch(function () { avatarCache[jid] = { none: Date.now() }; })
@@ -547,12 +573,13 @@ function toggleTheme() { var t = document.documentElement.classList.contains('li
 /* ---------- navigation ---------- */
 function show(v) {
   view = v;
-  ['home', 'chats', 'teach', 'link', 'dash', 'settings'].forEach(function (n) { $('v-' + n).classList.toggle('on', n === v); });
+  ['home', 'chats', 'teach', 'link', 'sched', 'dash', 'settings'].forEach(function (n) { $('v-' + n).classList.toggle('on', n === v); });
   document.querySelectorAll('nav.bottom .nv').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); });
   $('main').scrollTop = 0;
   if (v === 'chats' || v === 'home') loadChats();
   if (v === 'settings') { loadStyle(); loadSettings(); }
   if (v === 'teach') loadTeach();
+  if (v === 'sched') loadSched();
 }
 
 /* ---------- login ---------- */
@@ -870,6 +897,68 @@ function tick() {
   if (view === 'chats' || view === 'home') loadChats();
   if (openJid) loadChat(false);
 }
+/* ---------- Scheduled tab ---------- */
+var schedAll = [], sDays = [];
+function sDayChips() {
+  var box = $('sDays'); box.innerHTML = '';
+  [1, 2, 3, 4, 5, 6, 0].forEach(function (d) {
+    var c = mk('button', 'chip' + (sDays.indexOf(d) >= 0 ? ' on' : ''), DAY_NAMES[d]);
+    c.onclick = function () { var i = sDays.indexOf(d); if (i >= 0) sDays.splice(i, 1); else sDays.push(d); sDayChips(); };
+    box.appendChild(c);
+  });
+}
+function loadSched() {
+  return api('/api/schedules').then(function (r) {
+    schedAll = r.schedules || [];
+    var sel = $('sContact'), cur = sel.value; sel.innerHTML = '';
+    (r.contacts || []).forEach(function (c) { var o = document.createElement('option'); o.value = c.jid; o.textContent = c.name; sel.appendChild(o); });
+    if (cur) sel.value = cur;
+    $('sNoContacts').classList.toggle('hidden', !!(r.contacts && r.contacts.length));
+    $('sCount').textContent = schedAll.length;
+    sDayChips(); renderSched();
+  }).catch(function (e) { if (e.auth) showLogin('Wrong admin key.'); });
+}
+function saveSchedItem(s, patch) {
+  var b = { id: s.id, jid: s.jid, text: s.text, time: s.time, days: s.days, enabled: s.enabled };
+  Object.keys(patch).forEach(function (k) { b[k] = patch[k]; });
+  return api('/api/schedule', { method: 'POST', body: JSON.stringify(b) });
+}
+function renderSched() {
+  var box = $('sList'); box.innerHTML = '';
+  if (!schedAll.length) { box.appendChild(mk('div', 'empty', 'Nothing scheduled yet. Add one above, or from a chat’s ⚙ settings.')); return; }
+  schedAll.forEach(function (s) {
+    var card = mk('div', 'card');
+    var top = mk('div', 'row between');
+    top.appendChild(mk('b', '', s.name));
+    var tog = mk('button', 'chip' + (s.enabled ? ' on' : ''), s.enabled ? 'ON' : 'OFF');
+    tog.onclick = function () { saveSchedItem(s, { enabled: !s.enabled }).then(loadSched).catch(function (e) { flash('sMsg', e.message || 'Failed', false); }); };
+    top.appendChild(tog); card.appendChild(top);
+    card.appendChild(mk('div', 'small muted', s.time + ' · ' + daysText(s.days) + (s.lastSent ? ' · last sent ' + s.lastSent : '')));
+    card.appendChild(mk('div', 'small', '“' + s.text + '”'));
+    var row = mk('div', 'row'); row.style.marginTop = '10px';
+    var run = mk('button', 'btn grow', 'Send now'), del = mk('button', 'btn danger', 'Delete');
+    run.onclick = function () {
+      if (!confirm('Write and send this message to ' + s.name + ' right now?')) return;
+      flash('sMsg', 'Writing and sending…', true);
+      api('/api/schedule/run', { method: 'POST', body: JSON.stringify({ id: s.id }) }).then(function (r) { flash('sMsg', 'Sent: “' + (r.text || '') + '”', true); loadSched(); }).catch(function (e) { flash('sMsg', e.message || 'Failed', false); });
+    };
+    del.onclick = function () { if (confirm('Delete this scheduled message?')) api('/api/schedule/delete', { method: 'POST', body: JSON.stringify({ id: s.id }) }).then(loadSched); };
+    row.appendChild(run); row.appendChild(del); card.appendChild(row); box.appendChild(card);
+  });
+}
+function addSched() {
+  var typed = $('sNumber').value.replace(/[^0-9]/g, '');
+  var jid = typed.length >= 7 ? typed + '@s.whatsapp.net' : $('sContact').value;
+  var text = $('sText').value.trim(), time = $('sTime').value;
+  if (!jid) { flash('sMsg', 'Pick a person or type a number first.', false); return; }
+  if (!text) { flash('sMsg', 'Tell the AI what to say first.', false); return; }
+  if (!time) { flash('sMsg', 'Pick a time.', false); return; }
+  flash('sMsg', 'Saving…', true);
+  api('/api/schedule', { method: 'POST', body: JSON.stringify({ jid: jid, text: text, time: time, days: sDays.slice(), enabled: true }) }).then(function () {
+    $('sText').value = ''; $('sNumber').value = ''; sDays = []; flash('sMsg', 'Added. The first message goes out at the next ' + time + '.', true); loadSched();
+  }).catch(function (e) { flash('sMsg', e.message || 'Failed', false); });
+}
+
 /* ---------- Teach me ---------- */
 var teachData = { cards: [], inbox: [], audiences: [] }, editingCard = null;
 function setTeachBadge(n) { var b = $('teachBadge'); b.textContent = n; b.classList.toggle('hidden', !n); }

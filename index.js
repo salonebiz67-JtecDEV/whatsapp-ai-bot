@@ -108,7 +108,9 @@ async function getAvatar(jid) {
   if (!sock || global.botStatus !== 'connected') return c || null;
   let entry = { none: true, ts: Date.now() };
   try {
-    const url = await sock.profilePictureUrl(jid, 'image');   // full size (the 'preview' size looks blurry)
+    let url = null;
+    try { url = await sock.profilePictureUrl(jid, 'image'); } catch {}          // full size first
+    if (!url) { try { url = await sock.profilePictureUrl(jid, 'preview'); } catch {} }   // small one only if the big one is not available
     if (url) {
       const r = await fetch(url);
       if (r.ok) entry = { buf: Buffer.from(await r.arrayBuffer()), type: r.headers.get('content-type') || 'image/jpeg', ts: Date.now() };
@@ -187,6 +189,14 @@ async function handleApi(req, res, reqPath) {
       if (!av || av.none || !av.buf) return sendJson(res, 404, { error: 'No profile picture' });
       res.writeHead(200, { 'Content-Type': av.type, 'Cache-Control': 'private, max-age=3600' });
       return res.end(av.buf);
+    }
+    if (reqPath === '/api/schedules') {
+      const mem = await getMemoryStore();
+      const [list, contacts] = await Promise.all([mem.listSchedules(), mem.listContacts()]);
+      const nameOf = (jid) => global.contactNames.get(jid) || (contacts.find(c => c.jid === jid) || {}).name || (jid.endsWith('@s.whatsapp.net') ? '+' + jid.split('@')[0] : 'Unknown contact');
+      const schedules = list.map(x => ({ id: x.id, jid: x.jid, name: nameOf(x.jid), text: x.text, time: x.time, days: x.days || [], enabled: x.enabled !== false, lastSent: x.lastSent || '' })).sort((a, b) => String(a.time).localeCompare(String(b.time)));
+      const people = contacts.filter(c => c.jid.endsWith('@s.whatsapp.net')).map(c => ({ jid: c.jid, name: nameOf(c.jid) }));
+      return sendJson(res, 200, { schedules, contacts: people, timezone: config.timezone });
     }
     if (reqPath === '/api/style') {
       const mem = await getMemoryStore();
