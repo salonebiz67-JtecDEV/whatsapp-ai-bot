@@ -482,6 +482,34 @@ class MemoryStore {
     fs.writeFileSync(f, JSON.stringify(all));
   }
 
+  // ---------- TEACH ME: answer cards + inbox of questions the AI could not answer ----------
+  async _hashAll(redisKey, fileName) {
+    try {
+      let obj = {};
+      if (this.isRedis) obj = (await this.redis.hgetall(redisKey)) || {};
+      else { const f = path.join(this.localDir, fileName); obj = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf-8')) : {}; }
+      return Object.values(obj).map(v => (typeof v === 'string' ? JSON.parse(v) : v)).filter(Boolean);
+    } catch (e) { console.warn(`${redisKey} read error:`, e.message); return []; }
+  }
+  async _hashSet(redisKey, fileName, id, value) {
+    if (this.isRedis) { await this.redis.hset(redisKey, { [id]: JSON.stringify(value) }); return; }
+    const f = path.join(this.localDir, fileName);
+    const all = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf-8')) : {};
+    all[id] = value; fs.writeFileSync(f, JSON.stringify(all));
+  }
+  async _hashDel(redisKey, fileName, id) {
+    if (this.isRedis) { await this.redis.hdel(redisKey, id); return; }
+    const f = path.join(this.localDir, fileName);
+    const all = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf-8')) : {};
+    delete all[id]; fs.writeFileSync(f, JSON.stringify(all));
+  }
+  async listCards() { return (await this._hashAll('teach:cards', 'teach_cards.json')).sort((a, b) => (b.updated || 0) - (a.updated || 0)); }
+  async saveCard(c) { await this._hashSet('teach:cards', 'teach_cards.json', c.id, c); }
+  async deleteCard(id) { await this._hashDel('teach:cards', 'teach_cards.json', id); }
+  async listInbox() { return (await this._hashAll('teach:inbox', 'teach_inbox.json')).sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0)); }
+  async saveInboxItem(i) { await this._hashSet('teach:inbox', 'teach_inbox.json', i.id, i); }
+  async deleteInboxItem(id) { await this._hashDel('teach:inbox', 'teach_inbox.json', id); }
+
   // ---------- PER-CONTACT PROFILE (relationship + your own instructions) + BOT ON/OFF SWITCH ----------
   async getContactProfile(jid) {
     try {

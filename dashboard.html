@@ -129,7 +129,11 @@
   .dfoot { padding:10px 12px calc(12px + env(safe-area-inset-bottom)); background:var(--bg2); border-top:1px solid var(--line); }
 
   /* ---------- bottom nav ---------- */
-  nav.bottom { position:fixed; left:0; right:0; bottom:0; height:calc(72px + env(safe-area-inset-bottom)); padding-bottom:env(safe-area-inset-bottom); background:var(--bg2); border-top:1px solid var(--line); display:grid; grid-template-columns:1fr 1fr 1.1fr 1fr 1fr; align-items:end; z-index:30; }
+  .nv { position:relative; }
+  .nbadge { position:absolute; top:4px; left:calc(50% + 6px); min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--red); color:#fff; font-size:11px; font-weight:800; display:flex; align-items:center; justify-content:center; }
+  .qitem { border-left:3px solid var(--amber); }
+  .tcard .ans { white-space:pre-wrap; margin:6px 0; }
+  nav.bottom { position:fixed; left:0; right:0; bottom:0; height:calc(72px + env(safe-area-inset-bottom)); padding-bottom:env(safe-area-inset-bottom); background:var(--bg2); border-top:1px solid var(--line); display:grid; grid-template-columns:1fr 1fr 1fr 1.15fr 1fr 1fr; align-items:end; z-index:30; }
   .nv { background:none; border:none; color:var(--muted); font-size:12px; font-weight:600; display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 0 12px; cursor:pointer; font-family:inherit; }
   .nv svg { width:26px; height:26px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
   .nv.on { color:var(--accent); }
@@ -263,6 +267,28 @@
     </section>
 
     <!-- DASHBOARD -->
+    <!-- TEACH ME -->
+    <section id="v-teach" class="view">
+      <h2 class="h">Teach me</h2>
+      <div class="small muted" style="margin:-6px 2px 12px">Teach the AI an answer once. It uses it whenever someone asks, in its own words. Anything it can't answer shows up here.</div>
+      <h3 class="sec" style="margin-top:6px">Questions I couldn't answer <span id="inboxCount" class="badge rel">0</span></h3>
+      <div id="inboxList"></div>
+      <h3 class="sec">What I've taught</h3>
+      <div id="cardList"></div>
+      <h3 class="sec" id="cardFormTitle">Add an answer</h3>
+      <div class="card">
+        <label>Topic or question</label>
+        <input id="cTopic" maxlength="120" placeholder="e.g. What time do you open?">
+        <label>The answer (rough English is fine)</label>
+        <textarea id="cAnswer" rows="3" maxlength="400" placeholder="e.g. 9am to 6pm, Monday to Saturday"></textarea>
+        <label>Who can hear this answer?</label>
+        <select id="cAud"></select>
+        <div class="small muted" style="margin-top:6px">Audiences use the Friend / Family / Customer tag you set on each chat.</div>
+        <div class="row" style="margin-top:12px"><button class="btn primary grow" onclick="saveCardForm()">Save answer</button><button id="cCancel" class="btn hidden" onclick="resetCardForm()">Cancel</button></div>
+        <div id="cMsg" class="msg"></div>
+      </div>
+    </section>
+
     <section id="v-dash" class="view">
       <h2 class="h">Dashboard</h2>
       <div class="stats">
@@ -415,8 +441,8 @@
 
       <label>Who is this person to you?</label>
       <div id="relChips" class="chips"></div>
-      <label>Your notes about this person (optional)</label>
-      <textarea id="shPrompt" rows="4" maxlength="1200" placeholder="Example: My cousin Aminata. Speak softly, mix English and Krio. Don't talk about my work."></textarea>
+      <label>Facts about this person (the AI can answer from these)</label>
+      <textarea id="shPrompt" rows="4" maxlength="1200" placeholder="Example: Aminata is my cousin from Bo. I will call her on Friday. Speak softly, mix English and Krio."></textarea>
       <div class="small muted" style="margin-top:6px">These notes are only a guide. The AI understands the idea and says it in its own clear words, even if your English here is rough. It can't switch off the safety rules.</div>
       <div class="row" style="margin-top:12px"><button class="btn primary grow" onclick="saveContact()">Save</button></div>
       <div id="shMsg" class="msg"></div>
@@ -441,6 +467,7 @@
   <nav class="bottom">
     <button class="nv on" data-v="home" onclick="show('home')"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg><span>Home</span></button>
     <button class="nv" data-v="chats" onclick="show('chats')"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/></svg><span>Chats</span></button>
+    <button class="nv" data-v="teach" onclick="show('teach')"><svg viewBox="0 0 24 24"><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v17H6.5A2.5 2.5 0 0 0 4 21.5z"/><path d="M4 21.5V4.5"/><path d="M9 7h7M9 11h5"/></svg><span>Teach me</span><span id="teachBadge" class="nbadge hidden">0</span></button>
     <button class="nv fab" data-v="link" onclick="show('link')"><span class="fabbtn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></span><span class="lbl">Link</span></button>
     <button class="nv" data-v="dash" onclick="show('dash')"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Dashboard</span></button>
     <button class="nv" data-v="settings" onclick="show('settings')"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><span>Settings</span></button>
@@ -520,11 +547,12 @@ function toggleTheme() { var t = document.documentElement.classList.contains('li
 /* ---------- navigation ---------- */
 function show(v) {
   view = v;
-  ['home', 'chats', 'link', 'dash', 'settings'].forEach(function (n) { $('v-' + n).classList.toggle('on', n === v); });
+  ['home', 'chats', 'teach', 'link', 'dash', 'settings'].forEach(function (n) { $('v-' + n).classList.toggle('on', n === v); });
   document.querySelectorAll('nav.bottom .nv').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); });
   $('main').scrollTop = 0;
   if (v === 'chats' || v === 'home') loadChats();
   if (v === 'settings') { loadStyle(); loadSettings(); }
+  if (v === 'teach') loadTeach();
 }
 
 /* ---------- login ---------- */
@@ -835,13 +863,93 @@ function testAI() {
 
 /* ---------- polling ---------- */
 function tick() {
-  api('/api/status').then(renderStatus).catch(function (e) { if (e.auth) showLogin('Wrong or missing admin key.'); });
+  api('/api/status').then(function (s) { renderStatus(s); setTeachBadge(s.teachOpen || 0); if (view === 'teach' && !teachBusy()) loadTeach(); }).catch(function (e) { if (e.auth) showLogin('Wrong or missing admin key.'); });
   api('/api/logs?since=' + lastLogId).then(function (r) {
     if (r.logs.length) { r.logs.forEach(function (l) { logs.push(l); lastLogId = Math.max(lastLogId, l.id); }); if (logs.length > 500) logs = logs.slice(-500); if (view === 'dash') renderLogs(); }
   }).catch(function () {});
   if (view === 'chats' || view === 'home') loadChats();
   if (openJid) loadChat(false);
 }
+/* ---------- Teach me ---------- */
+var teachData = { cards: [], inbox: [], audiences: [] }, editingCard = null;
+function setTeachBadge(n) { var b = $('teachBadge'); b.textContent = n; b.classList.toggle('hidden', !n); }
+function teachBusy() { var a = document.activeElement; return !!(a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT' || a.tagName === 'SELECT') && $('v-teach').contains(a)); }
+function audLabel(id) { var a = teachData.audiences.filter(function (x) { return x.id === id; })[0]; return a ? a.label : 'Everyone'; }
+function audSelect(sel, val) { sel.innerHTML = ''; teachData.audiences.forEach(function (a) { var o = document.createElement('option'); o.value = a.id; o.textContent = a.label; sel.appendChild(o); }); sel.value = val || 'everyone'; }
+function ago(ts) { var m = Math.round((Date.now() - ts) / 60000); return m < 2 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago'; }
+function loadTeach() {
+  return api('/api/teach').then(function (r) {
+    teachData = r; setTeachBadge(r.inbox.length); $('inboxCount').textContent = r.inbox.length;
+    if (!$('cAud').options.length) audSelect($('cAud'), 'everyone');
+    renderInbox(); renderCards();
+  }).catch(function (e) { if (e.auth) showLogin('Wrong admin key.'); });
+}
+function renderInbox() {
+  var box = $('inboxList'); box.innerHTML = '';
+  if (!teachData.inbox.length) { box.appendChild(mk('div', 'empty', 'Nothing waiting. When the AI can’t answer a question, it appears here so you can teach it.')); return; }
+  teachData.inbox.forEach(function (it) {
+    var card = mk('div', 'card qitem');
+    card.appendChild(mk('b', '', it.question));
+    var first = it.askers[0] || { name: 'them', relationship: '' };
+    var who = it.askers.map(function (a) { return a.name; }).slice(0, 3).join(', ') + (it.askers.length > 3 ? ' and more' : '');
+    card.appendChild(mk('div', 'small muted', 'Asked by ' + who + ' · ' + it.count + (it.count === 1 ? ' time' : ' times') + ' · ' + ago(it.lastTs)));
+    var ta = document.createElement('textarea'); ta.rows = 2; ta.maxLength = 400; ta.placeholder = 'Type your answer…'; ta.style.marginTop = '8px'; card.appendChild(ta);
+    var sel = document.createElement('select'); sel.style.marginTop = '8px'; audSelect(sel, 'everyone'); card.appendChild(sel);
+    var row = mk('div', 'row'); row.style.marginTop = '8px';
+    var b1 = mk('button', 'btn primary grow', 'Save for ' + (sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent.toLowerCase() : 'everyone'));
+    sel.onchange = function () { b1.textContent = 'Save for ' + sel.options[sel.selectedIndex].textContent.toLowerCase(); };
+    var b2 = mk('button', 'btn grow', 'Only for ' + first.name), b3 = mk('button', 'btn danger', 'Dismiss');
+    var msg = mk('div', 'msg');
+    function send(scope, sendNow) {
+      if (!ta.value.trim()) { flash2(msg, 'Type your answer first', false); return; }
+      if (sendNow && !confirm('Save this answer and also send it now to the people who asked?')) return;
+      flash2(msg, sendNow ? 'Saving and sending… (this can take a few seconds)' : 'Saving…', true);
+      api('/api/teach/answer', { method: 'POST', body: JSON.stringify({ id: it.id, answer: ta.value, scope: scope, audience: sel.value, sendNow: !!sendNow }) }).then(function (r) {
+        if (sendNow && r.followUp) alert(r.followUp.error ? r.followUp.error : ('Saved. Sent to ' + r.followUp.sent + ' of ' + r.followUp.eligible + ' people who asked.'));
+        return loadTeach();
+      }).catch(function (e) { flash2(msg, e.message || 'Failed', false); });
+    }
+    b1.onclick = function () { send('audience'); }; b2.onclick = function () { send('person'); };
+    b3.onclick = function () { api('/api/teach/dismiss', { method: 'POST', body: JSON.stringify({ id: it.id }) }).then(loadTeach); };
+    row.appendChild(b1); row.appendChild(b2); row.appendChild(b3); card.appendChild(row);
+    var row2 = mk('div', 'row'); row2.style.marginTop = '8px';
+    var b4 = mk('button', 'btn grow', 'Save and send it to ' + (it.askers.length > 1 ? 'the people who asked' : first.name) + ' now');
+    b4.onclick = function () { send('audience', true); };
+    row2.appendChild(b4); card.appendChild(row2); card.appendChild(msg); box.appendChild(card);
+  });
+}
+function flash2(el, text, good) { el.textContent = text; el.className = 'msg ' + (good ? 'good' : 'err'); }
+function renderCards() {
+  var box = $('cardList'); box.innerHTML = '';
+  if (!teachData.cards.length) { box.appendChild(mk('div', 'empty', 'No answers yet. Add one below, or answer a question from the list above.')); return; }
+  teachData.cards.forEach(function (c) {
+    var card = mk('div', 'card tcard'), top = mk('div', 'row between');
+    top.appendChild(mk('b', '', c.topic));
+    var sw = mk('label', 'switch'), inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = c.enabled !== false;
+    inp.onchange = function () { api('/api/teach/card', { method: 'POST', body: JSON.stringify({ id: c.id, enabled: inp.checked }) }).then(loadTeach); };
+    sw.appendChild(inp); sw.appendChild(mk('span', 'slider')); top.appendChild(sw); card.appendChild(top);
+    card.appendChild(mk('div', 'ans small', c.answer));
+    card.appendChild(mk('span', 'badge rel', c.jid ? ('ONLY ' + (c.personName || 'ONE PERSON')).toUpperCase() : audLabel(c.audience).toUpperCase()));
+    var row = mk('div', 'row'); row.style.marginTop = '10px';
+    var e = mk('button', 'btn', 'Edit'), d = mk('button', 'btn danger', 'Delete');
+    e.onclick = function () { editCard(c); };
+    d.onclick = function () { if (confirm('Delete this answer?')) api('/api/teach/card/delete', { method: 'POST', body: JSON.stringify({ id: c.id }) }).then(loadTeach); };
+    row.appendChild(e); row.appendChild(d); card.appendChild(row); box.appendChild(card);
+  });
+}
+function editCard(c) {
+  editingCard = c; $('cTopic').value = c.topic; $('cAnswer').value = c.answer; audSelect($('cAud'), c.audience);
+  $('cAud').disabled = !!c.jid; $('cardFormTitle').textContent = 'Edit answer'; $('cCancel').classList.remove('hidden'); $('cMsg').textContent = '';
+  $('cTopic').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+function resetCardForm() { editingCard = null; $('cTopic').value = ''; $('cAnswer').value = ''; audSelect($('cAud'), 'everyone'); $('cAud').disabled = false; $('cardFormTitle').textContent = 'Add an answer'; $('cCancel').classList.add('hidden'); }
+function saveCardForm() {
+  var body = { topic: $('cTopic').value, answer: $('cAnswer').value, audience: $('cAud').value };
+  if (editingCard) body.id = editingCard.id;
+  api('/api/teach/card', { method: 'POST', body: JSON.stringify(body) }).then(function () { flash('cMsg', 'Saved ✓ The AI can use this now.', true); resetCardForm(); return loadTeach(); })
+    .catch(function (e) { flash('cMsg', e.message || 'Failed', false); });
+}
+
 function start() {
   if (!KEY) { showLogin(''); return; }
   api('/api/status').then(function (s) {

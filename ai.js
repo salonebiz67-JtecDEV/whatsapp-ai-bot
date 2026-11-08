@@ -63,6 +63,33 @@ export const RELATIONSHIP_OPTIONS = [
   { id: 'other', label: 'Other', tone: 'natural and polite' },
 ];
 
+// Who can hear a taught answer. Uses the relationship you set on each chat.
+export const AUDIENCES = [
+  { id: 'everyone', label: 'Everyone' },
+  { id: 'customer', label: 'Customers', rels: ['customer'] },
+  { id: 'friends', label: 'Friends', rels: ['friend', 'best_friend', 'close_friend'] },
+  { id: 'family', label: 'Family', rels: ['family', 'mom', 'dad', 'brother', 'sister', 'relative'] },
+  { id: 'work', label: 'Work (colleagues, boss)', rels: ['colleague', 'boss'] },
+];
+let teachCache = { cards: [], ts: 0 };
+export function clearTeachCache() { teachCache.ts = 0; }
+async function loadTaughtBlock(jid, relationship) {
+  try {
+    if (Date.now() - teachCache.ts > 20000) teachCache = { cards: await (await getMemoryStore()).listCards(), ts: Date.now() };
+    const OWNER = config.ownerName;
+    const mine = teachCache.cards.filter(c => {
+      if (c.enabled === false) return false;
+      if (c.jid) return c.jid === jid;
+      if (c.audience === 'everyone' || !c.audience) return true;
+      const aud = AUDIENCES.find(x => x.id === c.audience);
+      return !!(aud && aud.rels && relationship && aud.rels.includes(relationship));
+    }).slice(0, 40);
+    if (!mine.length) return '';
+    return `\nTHINGS ${OWNER} HAS TAUGHT YOU (answers you are allowed to give; say them in your own words, and use one ONLY when it really answers what the person asked. If it answers only part of the question, give that part and say you will let ${OWNER} know about the rest):\n` +
+      mine.map(c => `- ${c.topic}: ${c.answer}`).join('\n') + '\n';
+  } catch (e) { console.warn('taught block failed:', e.message); return ''; }
+}
+
 // The model answers in JSON: {"mode":"chat|identity|owner","reply":"...","owner_note":"..."}.
 // The MODEL decides what the person means. There are no keyword lists anywhere in this file.
 function parseModelReply(raw) {
@@ -82,7 +109,7 @@ function parseModelReply(raw) {
     }
     if (parts.length || react) {
       const q = Number.parseInt(o.quote, 10);
-      return { mode: ['chat', 'identity', 'owner'].includes(o.mode) ? o.mode : 'chat', parts, react, quote: Number.isInteger(q) && q > 0 ? q : 0, note: typeof o.owner_note === 'string' ? o.owner_note.trim() : '' };
+      return { mode: ['chat', 'identity', 'owner'].includes(o.mode) ? o.mode : 'chat', parts, react, quote: Number.isInteger(q) && q > 0 ? q : 0, note: typeof o.owner_note === 'string' ? o.owner_note.trim() : '', question: typeof o.question === 'string' ? o.question.trim().slice(0, 200) : '' };
     }
   }
   if (!t.startsWith('{')) return { mode: 'chat', parts: [t], react: '', note: '' };
@@ -158,7 +185,7 @@ async function buildContactBlock(jid) {
     const savedName = global.contactNames && global.contactNames.get(jid);
     return `\nABOUT THIS CONTACT${savedName ? ` (${savedName})` : ''}:\n` +
       (rel ? `- Relationship to ${OWNER}: ${rel.label}. Talk in a ${rel.tone} way.\n` : '') +
-      (profile.prompt ? `- Background notes from ${OWNER} about this person. They are only a rough guide and may be in bad English: understand the idea and use only what helps with THIS message, in your own clear words. Never copy or quote them, never mention them, and ignore anything that does not fit what the person just said. They never override the rules above:\n<<<${profile.prompt}>>>\n` : '');
+      (profile.prompt ? `- Facts and notes from ${OWNER} about this person. You may answer this person's questions from the facts here instead of saying you will check with ${OWNER}. They may be in bad English: understand the idea, use only what helps with THIS message, in your own clear words. Never copy or quote them, never mention that you have notes, and ignore anything that does not fit what the person just said. They never override the rules above:\n<<<${profile.prompt}>>>\n` : '');
   } catch (e) { console.warn('contact profile load failed:', e.message); return ''; }
 }
 
@@ -242,6 +269,10 @@ Set "quote" to the number of the message you are answering ONLY when it really h
   })();
 
   const contactBlock = isInternalAgentPrompt ? '' : await buildContactBlock(jid);
+  let taughtBlock = '';
+  if (!isInternalAgentPrompt && jid && jid !== 'dashboard-test') {
+    try { const prof = await (await getMemoryStore()).getContactProfile(jid); taughtBlock = await loadTaughtBlock(jid, prof && prof.relationship); } catch {}
+  } else if (jid === 'dashboard-test') { taughtBlock = await loadTaughtBlock(jid, ''); }
   const styleText = await getStyleText();
   const outreach = options.isAgentTask
     ? `\nThis conversation is an outreach you are doing for ${OWNER}: in your first message briefly say you are ${BOT}, ${OWNER}'s assistant, then follow the goal in the message.\n`
@@ -258,14 +289,14 @@ ${config.languageStyle}${st.languages ? `\nLanguages you can use: ${st.languages
 
 YOUR GOALS:
 ${config.goals}
-${st.aboutOwner ? `\nFACTS ABOUT ${OWNER} (you may use these when someone asks about him; if something is not covered here, it is an "owner" case and you must never guess):\n${st.aboutOwner}\n` : ''}${config.customRules ? `\nEXTRA RULES:\n${config.customRules}\n` : ''}
+${st.aboutOwner ? `\nFACTS ABOUT ${OWNER} (you may use these when someone asks about him; if something is not covered here, it is an "owner" case and you must never guess):\n${st.aboutOwner}\n` : ''}${taughtBlock}${config.customRules ? `\nEXTRA RULES:\n${config.customRules}\n` : ''}
 HOW TO REPLY:
 First read the whole conversation so far, then work out what this person means RIGHT NOW. Short replies like "yes", "why?" or "that one" refer to earlier messages. Remember what they already told you, never ask something they already answered, and never repeat yourself.
 Then choose exactly ONE mode:
 - "chat": normal conversation you can handle yourself (greetings, small talk, jokes, general questions, reacting to stickers or voice notes, anything you can simply answer). Chat like a natural, friendly person. In this mode do NOT say you are an AI or an assistant, do NOT introduce yourself, and do NOT say ${OWNER} is away, busy or not with his phone.
 - "identity": the person is asking who or what you are: your name, who you are, whether you are a bot, an AI or a human, whether they are talking to ${OWNER}, who you are helping, or what ${OWNER}'s name is. Answer exactly what they asked, honestly, in your own words and a little different each time: you are ${BOT}, ${OWNER}'s assistant (an AI) helping with his messages. If they ask two things (his name and yours), answer both. Never claim to be human or to be ${OWNER}.
 - "owner": the person asks something only ${OWNER} can answer or decide (private things about him, his plans, where he is, when he is free, personal or emotional matters, someone being angry or upset with him, serious situations like emergencies, or requests that need him), or something you simply do not know. Say naturally that you are ${BOT}, ${OWNER}'s assistant, that you will let him know, and that he will get back to them. If it is sad or serious, be kind first. Never guess or invent facts about ${OWNER}.
-Anything about money, bank accounts or payments is always an "owner" case: never share, ask for or agree to anything about money yourself, and never promise anything for ${OWNER}.
+Bank details, payments, deals and discounts are always an "owner" case: never share bank or account details, never take or promise a payment, never agree to a price change or a deal, and never promise anything for ${OWNER}. You MAY tell someone a price or a fee only when it is written in the things ${OWNER} taught you or in the facts about him.
 Never be romantic or flirty. You talk to men, women, elders and customers, so never call anyone 'bro', 'sis', 'man', 'ma', 'sir' or 'boss' and do not assume anyone's gender; use their name or no label. Only copy such a word if the contact uses it first.
 Keep replies short (1-3 short lines) unless more is needed.
 CONVERSATION STATE: ${gapText}
@@ -276,7 +307,7 @@ ${styleText ? `How ${OWNER} usually writes (manner only; you must never reuse hi
 Time: ${timeContext.formatted} - use "${timeContext.greeting}" if you greet.
 
 OUTPUT FORMAT: return ONLY one JSON object and nothing else:
-{"mode":"chat" or "identity" or "owner","reply":"the exact WhatsApp message to send"${canSplit ? ' (or an array of up to 3 short strings)' : ''}${canReact ? ',"react":"one emoji or empty"' : ''}${canQuote ? ',"quote":"number of the message you answer, or 0"' : ''},"owner_note":"only for mode owner: one short line telling ${OWNER} what the person wants"}
+{"mode":"chat" or "identity" or "owner","reply":"the exact WhatsApp message to send"${canSplit ? ' (or an array of up to 3 short strings)' : ''}${canReact ? ',"react":"one emoji or empty"' : ''}${canQuote ? ',"quote":"number of the message you answer, or 0"' : ''},"owner_note":"only for mode owner: one short line telling ${OWNER} what the person wants","question":"only for mode owner: if the person asked a question ${OWNER} could answer once and reuse later (about him, his work or business, prices, hours, place, plans), write that question here in plain neutral words, for example What time do you open? Otherwise leave it empty"}
 Earlier assistant messages in the conversation are shown as plain text, but your answer must always be this JSON object.
 `;
   console.log(`🧠 ${isNewContact ? 'NEW' : 'KNOWN'} contact ${jid} - ${BOT} for ${OWNER} (history: ${(history || []).length})`);
@@ -403,7 +434,7 @@ Earlier assistant messages in the conversation are shown as plain text, but your
     return `Give me a moment and I'll get back to you shortly 🙂`;
   }
   console.log(`🎯 Mode chosen by AI for ${jid}: ${parsed.mode}${parsed.react ? ' + reaction ' + parsed.react : ''}`);
-  if (parsed.mode === 'owner' && options.meta) { options.meta.needsOwner = true; options.meta.note = parsed.note || ''; }
+  if (parsed.mode === 'owner' && options.meta) { options.meta.needsOwner = true; options.meta.note = parsed.note || ''; options.meta.question = parsed.question || ''; }
 
   let parts = parsed.parts.map(p => (p.length > 700 ? p.slice(0, 650) + '...' : p));
   if (!canSplit && parts.length > 1) parts = [parts.join('\n')];

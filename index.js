@@ -5,10 +5,11 @@ import http from 'http';
 import { config, validateConfig } from './config.js';
 import { createAuthState } from './auth.js';
 import { getMemoryStore } from './memory.js';
-import { RELATIONSHIP_OPTIONS, generateReply, refreshStyleProfile, parseOwnerCommand, getOwnerHelpText, getNigerianTimeContext } from './ai.js';
+import { AUDIENCES, clearTeachCache, RELATIONSHIP_OPTIONS, generateReply, refreshStyleProfile, parseOwnerCommand, getOwnerHelpText, getNigerianTimeContext } from './ai.js';
 import { extractOwnerStyleFromExport } from './import.js';
 import fs from 'fs';
 import { trackChat } from './chats.js';
+import { addToInbox, cleanCard, saveCard, sendFollowUps } from './teach.js';
 import { loadSettings, updateSettings, TYPING_MS_PER_CHAR } from './settings.js';
 import { startSchedulers, runSchedule, newScheduleId, localNow } from './schedules.js';
 import { recordExchange, startSummaryScheduler, sendSummary, buildSummary, summaryInfo } from './summary.js';
@@ -136,6 +137,7 @@ async function handleApi(req, res, reqPath) {
         paused: !!global.botPaused,
         stats: global.stats,
         pairing: global.pairing,
+        teachOpen: await getMemoryStore().then(m => m.listInbox()).then(l => l.length).catch(() => 0),
         summary: await summaryInfo().catch(() => null),
         phoneNumber: config.phoneNumber,
         settings: {
@@ -193,6 +195,13 @@ async function handleApi(req, res, reqPath) {
     }
     if (reqPath === '/api/settings') {
       return sendJson(res, 200, { settings: global.settings });
+    }
+    if (reqPath === '/api/teach') {
+      const mem = await getMemoryStore();
+      const names = {};
+      for (const c of await mem.listContacts()) names[c.jid] = (global.contactNames.get(c.jid)) || c.name || '+' + c.jid.split('@')[0];
+      const cards = (await mem.listCards()).map(c => ({ ...c, personName: c.jid ? (names[c.jid] || '+' + c.jid.split('@')[0]) : '' }));
+      return sendJson(res, 200, { cards, inbox: await mem.listInbox(), audiences: AUDIENCES.map(a => ({ id: a.id, label: a.label })) });
     }
     if (reqPath === '/api/logs') {
       const since = parseInt(new URL(req.url, 'http://localhost').searchParams.get('since') || '0', 10);
@@ -257,6 +266,41 @@ async function handleApi(req, res, reqPath) {
     if (reqPath === '/api/settings/save') {
       const saved = await updateSettings(body && typeof body === 'object' ? body : {});
       return sendJson(res, 200, { ok: true, settings: saved });
+    }
+    if (reqPath === '/api/teach/card') {
+      try {
+        const mem = await getMemoryStore();
+        const existing = body.id ? (await mem.listCards()).find(c => c.id === body.id) || {} : {};
+        const saved = await saveCard(cleanCard(body, existing));
+        console.log(`📚 Teach me card saved: "${saved.topic}" (${saved.jid ? 'one person' : saved.audience})`);
+        return sendJson(res, 200, { ok: true, card: saved });
+      } catch (e) { return sendJson(res, 400, { error: e.message }); }
+    }
+    if (reqPath === '/api/teach/card/delete') {
+      await (await getMemoryStore()).deleteCard(String(body.id || '')); clearTeachCache();
+      return sendJson(res, 200, { ok: true });
+    }
+    if (reqPath === '/api/teach/answer') {
+      try {
+        const mem = await getMemoryStore();
+        const item = (await mem.listInbox()).find(i => i.id === body.id);
+        if (!item) return sendJson(res, 404, { error: 'That question is already gone' });
+        const person = body.scope === 'person';
+        const card = cleanCard({ topic: item.question, answer: body.answer, audience: person ? 'everyone' : (body.audience || 'everyone'), jid: person && item.askers[0] ? item.askers[0].jid : '', source: 'inbox' });
+        await saveCard(card);
+        await mem.deleteInboxItem(item.id);
+        console.log(`📚 Answered from the inbox: "${item.question}" -> ${person ? 'for ' + (item.askers[0] || {}).name : card.audience}`);
+        let followUp = null;
+        if (body.sendNow) {
+          if (global.botStatus !== 'connected' || !sock) followUp = { sent: 0, eligible: 0, error: 'WhatsApp is not connected right now, so nothing was sent. The answer is saved.' };
+          else followUp = await sendFollowUps(sock, item, card, body.answer);
+        }
+        return sendJson(res, 200, { ok: true, card, followUp });
+      } catch (e) { return sendJson(res, 400, { error: e.message }); }
+    }
+    if (reqPath === '/api/teach/dismiss') {
+      await (await getMemoryStore()).deleteInboxItem(String(body.id || ''));
+      return sendJson(res, 200, { ok: true });
     }
     if (reqPath === '/api/pause') {
       await setPaused(!!body.paused);
@@ -1139,13 +1183,12 @@ async function handleMessage(msg) {
     console.log(`🤖 Assistant replied to ${contactName}${parts.length > 1 ? ` (${parts.length} parts)` : ''}: ${sentText.slice(0,100)}...`);
     await memory.addMessage(jid, 'assistant', sentText);
     recordExchange({ jid, name: contactName, incoming: messageContent, reply: sentText });
-    if (aiMeta.needsOwner) notifyOwner(`🙋 *Needs you*
-
-${contactName} (+${jid.split('@')[0]})${aiMeta.note ? ': ' + aiMeta.note : ' needs you'}
-
-Their message: "${(messageContent || '').slice(0, 220)}"
-
-${config.assistantName} told them you'll get back to them.`);
+    let savedToTeach = false;
+    if (aiMeta.needsOwner && aiMeta.question) {
+      let rel = ''; try { const pf = await memory.getContactProfile(jid); rel = (pf && pf.relationship) || ''; } catch {}
+      savedToTeach = !!(await addToInbox({ question: aiMeta.question, note: aiMeta.note, jid, name: contactName, relationship: rel }));
+    }
+    if (aiMeta.needsOwner) notifyOwner(`🙋 *Needs you*\n\n${contactName} (+${jid.split('@')[0]})${aiMeta.note ? ': ' + aiMeta.note : ' needs you'}\n\nTheir message: "${(messageContent || '').slice(0, 220)}"\n\n${config.assistantName} told them you'll get back to them.${savedToTeach ? '\n\n📚 Saved in Teach me: answer it once and the AI can answer it next time.' : ''}`);
     
         await sock.sendPresenceUpdate('paused', jid);
 
